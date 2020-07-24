@@ -4,4 +4,4 @@
 
 Realizado por el equipo de LectO en colaboración con DISFAM.
 
-Recuerden ejecutar ```npm install``` para las librerías
+Recuerden ejecutar ```npm install``` para las librerías.
