@@ -22,7 +22,7 @@ router.get('/estado/:id', async(req, res) => {
 //     "user": mail o numero de pasaporte
 //     "password": contraseña 
 // }
-router.get('/login', async(req, res) => {
+router.post('/login', async(req, res) => {
 
     try {
         const usuario = await Usuario.findOne({ correoElectronico: req.body.user });
