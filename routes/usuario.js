@@ -13,7 +13,8 @@ router.get('/estado/:id', async(req, res) => {
     const usuarioSolicitado = await Usuario.findOne({ _id: req.params.id });
     const respuesta = {
         "estado": usuarioSolicitado.estado,
-        "mensajeMedico": usuarioSolicitado.mensajeMedico
+        "mensajeMedico": usuarioSolicitado.mensajeMedico,
+        "nombre": usuarioSolicitado.nombre
     };
 
     res.json(respuesta);
