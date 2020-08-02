@@ -15,11 +15,12 @@ const Usuario = mongoose.Schema({
         discalculia: { type: Boolean, required: true },
         disortografía: { type: Boolean, required: true },
         dispraxia: { type: Boolean, required: true },
-        "tda-h": { type: Boolean, required: true }
+        tdah: { type: Boolean, required: true }
     },
     linkDiagnostico: { type: String, required: true },
     linkPasaporte: { type: String, required: true },
     password: { type: String, required: true },
+    // hasta acá
     estado: { type: String, default: "pendiente" },
     mensajeMedico: { type: String, default: "" },
     numeroPasaporte: { type: Number, required: false, index: true, unique: true }

@@ -13,6 +13,7 @@ router.get('/', async(req, res) => {
     }
 });
 
+// pasar modeloUsuario
 router.post('/', async(req, res) => {
     const user = req.body;
 

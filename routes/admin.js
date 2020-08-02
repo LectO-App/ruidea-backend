@@ -6,7 +6,7 @@ const { route } = require('./inscripcion');
 
 // Pasar JSON del estilo:
 // {
-//     "emailUsuario": "String",
+//     "emailUsuario": "String", (puede ser ID sino, como quieras)
 //     "estado": "aceptado/revision/rechazado/pendiente (este último si aún no lo revisó)",
 //     "mensajeMedico": vacío si aceptado, completo si pide revisión
 // }
@@ -36,7 +36,7 @@ router.post('/respuesta', async(req, res) => {
 
             case 'rechazado':
                 var updatedUser = await Usuario.updateOne({ correoElectronico: request.emailUsuario }, {
-                    $set: { estado: "rechazado" }
+                    $set: { mensajeMedico: request.mensajeMedico, estado: "rechazado" }
                 });
                 res.json(updatedUser);
                 break;

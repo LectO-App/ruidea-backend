@@ -3,14 +3,12 @@ const router = express.Router();
 const bcrypt = require('bcrypt');
 const Usuario = require('../models/modeloUsuario');
 
-// pasar JSON del estilo:
-// {
-//     "id": "documentoDelUsuario"
-// }
-// podría ser también un parámetro de la búsqueda, preguntar qué prefieren
+// router.get('/verificar/:documento/:numeroPasaporte', async(req, res) => {
 
-router.get('/estado', async(req, res) => {
-    const usuarioSolicitado = await Usuario.findOne({ _id: req.body.id });
+// });
+
+router.get('/estado/:id', async(req, res) => {
+    const usuarioSolicitado = await Usuario.findOne({ _id: req.params.id });
     const respuesta = {
         "estado": usuarioSolicitado.estado,
         "mensajeMedico": usuarioSolicitado.mensajeMedico
@@ -24,16 +22,6 @@ router.get('/estado', async(req, res) => {
 //     "user": mail o numero de pasaporte
 //     "password": contraseña 
 // }
-
-router.get('/count', async(req, res) => {
-    try {
-        const cant = await Usuario.countDocuments();
-        res.json({ cant: cant });
-    } catch (err) {
-        res.json({ message: err });
-    }
-});
-
 router.get('/login', async(req, res) => {
 
     try {
@@ -47,6 +35,16 @@ router.get('/login', async(req, res) => {
         res.json({ message: err });
     }
 
+});
+
+// ignorar
+router.get('/count', async(req, res) => {
+    try {
+        const cant = await Usuario.countDocuments();
+        res.json({ cant: cant });
+    } catch (err) {
+        res.json({ message: err });
+    }
 });
 
 module.exports = router;
