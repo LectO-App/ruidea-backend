@@ -26,8 +26,12 @@ router.get('/estado/:id', async(req, res) => {
 // }
 router.post('/login', async(req, res) => {
     try {
-        const usuario = await Usuario.findOne({ correoElectronico: req.body.user });
+        // Busco el usuario
+        if(!isNaN(req.body.user)) var usuario = await Usuario.findOne({ numeroPasaporte: req.body.user });
+        else var usuario = await Usuario.findOne({ correoElectronico: req.body.user });
         if(usuario == null) return res.status(401).json({ correcto: false });
+
+        // Verifico la contraseña
         if (await bcrypt.compare(req.body.password, usuario.password)) {
             res.json({ correcto: true, usuario: usuario });
         } else {
@@ -38,7 +42,7 @@ router.post('/login', async(req, res) => {
     }
 });
 
-// ignorar
+// Ignorar
 router.get('/count', async(req, res) => {
     try {
         const cant = await Usuario.countDocuments();
