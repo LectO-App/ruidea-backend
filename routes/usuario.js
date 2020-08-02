@@ -3,9 +3,11 @@ const router = express.Router();
 const bcrypt = require('bcrypt');
 const Usuario = require('../models/modeloUsuario');
 
-// router.get('/verificar/:documento/:numeroPasaporte', async(req, res) => {
-
-// });
+router.post('/verificar/:numeroDocumento/:numeroPasaporte', async(req, res) => {
+    const usuarioSolicitado = await Usuario.findOne({ numeroPasaporte: req.params.numeroPasaporte });
+    if(usuarioSolicitado == null || usuarioSolicitado.numeroDocumento != req.params.numeroDocumento) return res.json({ existe: false });
+    res.json({ existe: true, usuario: usuarioSolicitado });
+});
 
 router.get('/estado/:id', async(req, res) => {
     const usuarioSolicitado = await Usuario.findOne({ _id: req.params.id });
@@ -23,18 +25,17 @@ router.get('/estado/:id', async(req, res) => {
 //     "password": contraseña 
 // }
 router.post('/login', async(req, res) => {
-
     try {
         const usuario = await Usuario.findOne({ correoElectronico: req.body.user });
+        if(usuario == null) return res.status(401).json({ correcto: false });
         if (await bcrypt.compare(req.body.password, usuario.password)) {
             res.json({ correcto: true, usuario: usuario });
         } else {
-            res.json({ correcto: false });
+            res.status(401).json({ correcto: false });
         }
     } catch (err) {
-        res.json({ message: err });
+        res.status(401).json({ message: err });
     }
-
 });
 
 // ignorar
