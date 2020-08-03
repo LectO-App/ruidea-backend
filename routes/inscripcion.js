@@ -19,9 +19,10 @@ router.get('/', async(req, res) => {
 // }
 router.post('/comprobar-mail', async(req, res) => {
     try{
-        const user = Usuario.findOne({ correoElectronico: req.mail });
-        if(user == null) res.json({ disponible: true });
-        else res.json({ disponible: false });
+        const user = await Usuario.exists({ correoElectronico: req.body.mail });
+        console.log(user);
+        if(user) res.json({ disponible: false });
+        else res.json({ disponible: true });
     }
     catch(err){
         res.json({ message: err });
@@ -34,6 +35,7 @@ router.post('/', async(req, res) => {
 
     try {
         user.password = await bcrypt.hash(user.password, 10);
+        user.fechaNacimiento = new Date(user.fechaNacimiento);
         const savedUser = await Usuario(user).save();
         res.json(savedUser);
 
