@@ -4,7 +4,8 @@ const { json } = require('body-parser');
 const Usuario = mongoose.Schema({
     nombre: { type: String, required: true },
     apellidos: { type: String, required: true },
-    lugarResidencia: { type: String, required: true },
+    paisResidencia: { type: String, required: true },
+    localidadResidencia: { type: String, required: true },
     lugarNacimiento: { type: String, required: true },
     numeroDocumento: { type: String, required: true },
     fechaNacimiento: { type: Date, required: true },

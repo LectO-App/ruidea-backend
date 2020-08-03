@@ -13,6 +13,21 @@ router.get('/', async(req, res) => {
     }
 });
 
+// pasar json del estilo:
+// {
+//     mail: correoElectronico
+// }
+router.post('/comprobar-mail', async(req, res) => {
+    try{
+        const user = Usuario.findOne({ correoElectronico: req.mail });
+        if(user == null) res.json({ disponible: true });
+        else res.json({ disponible: false });
+    }
+    catch(err){
+        res.json({ message: err });
+    }
+});
+
 // pasar modeloUsuario
 router.post('/', async(req, res) => {
     const user = req.body;
@@ -23,6 +38,7 @@ router.post('/', async(req, res) => {
         res.json(savedUser);
 
     } catch (err) {
+        console.log(err);
         res.status(401).json({ message: err });
     }
 
