@@ -19,14 +19,25 @@ router.post('/', async(req, res) => {
 
     try {
         user.password = await bcrypt.hash(user.password, 10);
-        const newUser = Usuario(user);
-        const savedUser = await newUser.save();
+        const savedUser = await Usuario(user).save();
         res.json(savedUser);
 
     } catch (err) {
-        res.json({ message: err });
+        res.status(401).json({ message: err });
     }
 
 });
+
+// ignorar
+router.post('/borrar', async(req,res) => {
+    try{
+        const users = await Usuario.deleteMany();
+        res.json(users);
+    }
+    catch(err) {
+        console.log(err);
+        res.status(401).json({ message: err });
+    }
+})
 
 module.exports = router;

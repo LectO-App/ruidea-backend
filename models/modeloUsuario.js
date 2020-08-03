@@ -23,7 +23,8 @@ const Usuario = mongoose.Schema({
     // hasta acá
     estado: { type: String, default: "pendiente" },
     mensajeMedico: { type: String, default: "" },
-    numeroPasaporte: { type: Number, required: false, index: true, unique: true }
+    numeroPasaporte: { type: Number, default: -1 }
+    // numeroPasaporte: { type: Number, required: false, index: true, unique: true }
 });
 
 module.exports = mongoose.model('usuario', Usuario);
