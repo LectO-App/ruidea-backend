@@ -13,6 +13,24 @@ router.get('/', async(req, res) => {
     }
 });
 
+// pasar modeloUsuario
+router.post('/', async(req, res) => {
+    const user = req.body;
+
+    try {
+        user.password = await bcrypt.hash(user.password, 10);
+        user.fechaNacimiento = new Date(user.fechaNacimiento);
+        user.fechaCreacion = Date.now();
+        const savedUser = await Usuario(user).save();
+        res.json(savedUser);
+
+    } catch (err) {
+        console.log(err);
+        res.status(401).json({ message: err });
+    }
+
+});
+
 // pasar json del estilo:
 // {
 //     mail: correoElectronico
@@ -27,23 +45,6 @@ router.post('/comprobar-mail', async(req, res) => {
     catch(err){
         res.json({ message: err });
     }
-});
-
-// pasar modeloUsuario
-router.post('/', async(req, res) => {
-    const user = req.body;
-
-    try {
-        user.password = await bcrypt.hash(user.password, 10);
-        user.fechaNacimiento = new Date(user.fechaNacimiento);
-        const savedUser = await Usuario(user).save();
-        res.json(savedUser);
-
-    } catch (err) {
-        console.log(err);
-        res.status(401).json({ message: err });
-    }
-
 });
 
 // ignorar

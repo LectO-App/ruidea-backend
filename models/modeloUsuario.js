@@ -22,6 +22,7 @@ const Usuario = mongoose.Schema({
     linkPasaporte: { type: String, required: true },
     password: { type: String, required: true },
     // hasta acá
+    fechaCreacion: { type: Date, required: true },
     estado: { type: String, default: "pendiente" },
     mensajeMedico: { type: String, default: "" },
     numeroPasaporte: { type: Number, default: -1 }
