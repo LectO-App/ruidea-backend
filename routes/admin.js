@@ -78,4 +78,14 @@ router.post('/solicitudes', async(req,res) => {
     }
 });
 
+router.post('/solicitudes/:id', async(req, res) => {
+    try{
+        const usuario = await Usuario.findOne({ _id: req.params.id });
+        res.json({usuario});
+    }
+    catch(err) {
+        res.status(401).json({ message: err });
+    }
+})
+
 module.exports = router;
