@@ -26,7 +26,7 @@ app.get('/', (req, res) => {
 });
 
 // Connecting to data-base
-mongoose.connect(process.env.DB_CONNECTION, { useNewUrlParser: true, useUnifiedTopology: true, useCreateIndex: true },
+mongoose.connect(process.env.DB_CONNECTION, { useNewUrlParser: true, useUnifiedTopology: true, useCreateIndex: true, useFindAndModify: false },
     () => { console.log("Conncected to DB"); }
 );
 

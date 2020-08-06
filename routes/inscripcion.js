@@ -31,6 +31,42 @@ router.post('/', async(req, res) => {
 
 });
 
+// pasar modeluUsario
+router.put('/actualizar', async(req, res) => {
+    try{
+        const user = req.body;
+        const update = await Usuario.findOneAndUpdate({ _id: user._id}, { $set: {
+            nombre:  user.nombre,
+            apellidos: user.apellidos,
+            paisResidencia: user.paisResidencia,
+            localidadResidencia: user.localidadResidencia,
+            lugarNacimiento: user.lugarNacimiento,
+            numeroDocumento: user.numeroDocumento,
+            fechaNacimiento: user.fechaNacimiento,
+            correoElectronico: user.correoElectronico,
+            numeroTelefono: user.numeroTelefono,
+            diagnostico: {
+                dislexia: user["diagnostico"].dislexia,
+                discalculia: user["diagnostico"].discalculia,
+                disortografía: user["diagnostico"].disortografía,
+                dispraxia: user["diagnostico"].dispraxia,
+                tdah: user["diagnostico"].tdah
+            },
+            linkDiagnostico: user.linkDiagnostico,
+            linkPasaporte: user.linkPasaporte,
+            password: await bcrypt.hash(user.password, 10),
+            fechaCreacion: Date.now(),
+            estado: "pendiente"
+
+        }});
+        res.json({ update });
+    }
+    catch(err) {
+        console.log(err);
+        res.json({ message: err }).status(401);
+    }
+});
+
 // pasar json del estilo:
 // {
 //     mail: correoElectronico
