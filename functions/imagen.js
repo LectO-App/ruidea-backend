@@ -1,4 +1,5 @@
 const nodeHtmlToImage = require('node-html-to-image');
+const puppeteer = require("puppeteer");
 const fs = require('fs');
 const QRCode = require('qrcode');
 const { options } = require('../routes/usuario');
