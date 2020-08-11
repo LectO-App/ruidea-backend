@@ -7,6 +7,8 @@ const disfam = fs.readFileSync('./functions/logoRuidea.png');
 const base64Disfam = new Buffer.from(disfam).toString('base64');
 const URIDisfam = 'data:image/jpeg;base64,' + base64Disfam
 
+// deploy
+
 const generateImage = async(url, nombre, pais, pasaporte) => {
     try{
         const qrLink = await QRCode.toDataURL(url);
