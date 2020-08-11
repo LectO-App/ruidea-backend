@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcrypt');
-const generateImage = require('../imagen.js');
+const generateImage = require('../functions/imagen.js');
 const Usuario = require('../models/modeloUsuario');
 
 router.post('/verificar/:numeroDocumento/:numeroPasaporte', async(req, res) => {

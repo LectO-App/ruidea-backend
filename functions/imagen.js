@@ -2,7 +2,7 @@ const nodeHtmlToImage = require('node-html-to-image');
 const fs = require('fs');
 const QRCode = require('qrcode')
 
-const disfam = fs.readFileSync('./logoRuidea.png');
+const disfam = fs.readFileSync('./functions/logoRuidea.png');
 const base64Disfam = new Buffer.from(disfam).toString('base64');
 const URIDisfam = 'data:image/jpeg;base64,' + base64Disfam
 

@@ -6,7 +6,8 @@
     "scripts": {
         "start": "node app.js",
         "dev": "nodemon app.js",
-        "img": "nodemon imagen.js"
+        "img": "nodemon functions/imagen.js",
+        "pdf": "nodemon functions/pdf.js"
     },
     "author": "",
     "license": "ISC",
@@ -17,6 +18,7 @@
         "cors": "^2.8.5",
         "dotenv": "^8.2.0",
         "express": "^4.17.1",
+        "html-pdf": "^2.2.0",
         "mongodb": "^3.5.9",
         "mongoose": "^5.9.26",
         "node-html-to-image": "^3.0.1",
