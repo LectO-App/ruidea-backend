@@ -68,8 +68,10 @@ router.post('/imagen-pasaporte', async(req, res) => {
 
         const img = await generateImage(`https://ruidea.netlify.app/verificar/${documento}/${pasaporte}`, user.nombre + ' ' + user.apellidos, user.pais, pasaporte);
 
-        res.writeHead(200, { 'Content-Type': 'image/png' });
-        res.end(img, 'binary');
+        res.set({'Content-Type': 'image/png'});
+        res.send(img);
+        // res.writeHead(200, { 'Content-Type': 'image/png' });
+        // res.end(img, 'binary');
     }
     catch(err){
         res.status(401).json({ message: err });
