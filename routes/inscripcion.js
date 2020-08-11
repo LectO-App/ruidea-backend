@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcrypt');
+const nodeHtmlToImage = require('node-html-to-image');
 const Usuario = require('../models/modeloUsuario');
 const { json } = require('body-parser');
 
@@ -64,6 +65,20 @@ router.put('/actualizar', async(req, res) => {
     catch(err) {
         console.log(err);
         res.json({ message: err }).status(401);
+    }
+});
+
+router.get('/imagen', async(req, res) => {
+    try{
+        const image = await nodeHtmlToImage({
+            html: '<html><body><div>Check out what I just did! #cool</div></body></html>'
+        });
+        res.writeHead(200, { 'Content-Type': 'image/png' });
+        res.end(image, 'binary');
+    }
+    catch(err) {
+        console.log(err);
+        res.status(404).json({ message: err });
     }
 });
 

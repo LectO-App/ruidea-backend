@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcrypt');
+const generateImage = require('../imagen.js');
 const Usuario = require('../models/modeloUsuario');
 
 router.post('/verificar/:numeroDocumento/:numeroPasaporte', async(req, res) => {
@@ -14,7 +15,9 @@ router.get('/estado/:id', async(req, res) => {
     const respuesta = {
         "estado": usuarioSolicitado.estado,
         "mensajeMedico": usuarioSolicitado.mensajeMedico,
-        "nombre": usuarioSolicitado.nombre
+        "nombre": usuarioSolicitado.nombre,
+        "numeroPasaporte": usuarioSolicitado.numeroPasaporte,
+        "numeroDocumento": usuarioSolicitado.numeroDocumento
     };
 
     res.json(respuesta);
@@ -50,6 +53,26 @@ router.get('/count', async(req, res) => {
         res.json({ cant: cant });
     } catch (err) {
         res.json({ message: err });
+    }
+});
+
+// pasar JSON del estilo
+// {
+//     _id: 'id del usuario'
+// }
+router.post('/imagen-pasaporte', async(req, res) => {
+    try{
+        const user = await Usuario.findById(req.body._id);
+        const documento = user.numeroDocumento;
+        const pasaporte = user.numeroPasaporte;
+
+        const img = await generateImage(`https://ruidea.netlify.app/verificar/${documento}/${pasaporte}`, user.nombre + ' ' + user.apellidos, user.pais, pasaporte);
+
+        res.writeHead(200, { 'Content-Type': 'image/png' });
+        res.end(img, 'binary');
+    }
+    catch(err){
+        res.status(401).json({ message: err });
     }
 });
 
