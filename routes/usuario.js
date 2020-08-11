@@ -58,22 +58,17 @@ router.get('/count', async(req, res) => {
 
 // pasar JSON del estilo
 // {
-//     _id: 'id del usuario'
+//     id: 'id del usuario'
 // }
 router.post('/imagen-pasaporte', async(req, res) => {
     try{
-        const user = await Usuario.findById(req.body._id);
+        const user = await Usuario.findById(req.body.id);
         const documento = user.numeroDocumento;
         const pasaporte = user.numeroPasaporte;
 
-        const im = await generateImage(
-            `https://ruidea.netlify.app/verificar/${documento}/${pasaporte}`,
-            user.nombre + " " + user.apellidos,
-            user.pais,
-            pasaporte
-          );
-          const img = Buffer.from(im, "base64").toJSON();
-          res.send(img)
+        const imagenGenerada = await generateImage(`https://ruidea.netlify.app/verificar/${documento}/${pasaporte}`, user.nombre + ' ' + user.apellidos, user.pais, pasaporte);        
+        const imagenBuffer = Buffer.from(imagenGenerada, "base64").toJSON();
+        res.send(imagenBuffer)
 
         // res.writeHead(200, {
         //     'Content-Type': 'image/png',
