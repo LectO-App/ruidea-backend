@@ -12,15 +12,8 @@ router.post('/verificar/:numeroDocumento/:numeroPasaporte', async(req, res) => {
 
 router.get('/estado/:id', async(req, res) => {
     const usuarioSolicitado = await Usuario.findOne({ _id: req.params.id });
-    const respuesta = {
-        "estado": usuarioSolicitado.estado,
-        "mensajeMedico": usuarioSolicitado.mensajeMedico,
-        "nombre": usuarioSolicitado.nombre,
-        "numeroPasaporte": usuarioSolicitado.numeroPasaporte,
-        "numeroDocumento": usuarioSolicitado.numeroDocumento
-    };
 
-    res.json(respuesta);
+    res.json(usuarioSolicitado);
 });
 
 // pasar JSON del estilo:
