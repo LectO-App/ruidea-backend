@@ -3,22 +3,26 @@ const app = express();
 const mongoose = require('mongoose');
 const cors = require('cors');
 const mongodb = require('mongodb');
-const bodyParser = require('body-parser');
+const fileUpload = require('express-fileupload')
 
 require('dotenv/config');
 
 app.use(express.json());
+app.use(express.urlencoded({extended: true}));
+app.use(fileUpload())
 
 // Import routes
 const inscripcionRoutes = require('./routes/inscripcion');
 const adminRoutes = require('./routes/admin');
 const usuarioRoutes = require('./routes/usuario');
+const uploadFile = require('./prueba-archivos.js')
 
 // MIDDLEWAREs
 app.use(cors());
 app.use('/admin', adminRoutes);
 app.use('/inscripcion', inscripcionRoutes);
 app.use('/usuario', usuarioRoutes);
+app.use('/subir-archivo', uploadFile);
 
 // ROUTES
 app.get('/', (req, res) => {

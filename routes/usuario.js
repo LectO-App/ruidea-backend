@@ -1,7 +1,6 @@
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcrypt');
-const generateImage = require('../functions/imagen.js');
 const Usuario = require('../models/modeloUsuario');
 
 router.post('/verificar/:numeroDocumento/:numeroPasaporte', async(req, res) => {
@@ -46,39 +45,6 @@ router.get('/count', async(req, res) => {
         res.json({ cant: cant });
     } catch (err) {
         res.json({ message: err });
-    }
-});
-
-// pasar JSON del estilo
-// {
-//     _id: 'id del usuario'
-// }
-router.post('/imagen-pasaporte', async(req, res) => {
-    try{
-        const user = await Usuario.findById(req.body._id);
-        const documento = user.numeroDocumento;
-        const pasaporte = user.numeroPasaporte;
-
-        const imagenGenerada = await generateImage(`https://ruidea.netlify.app/verificar/${documento}/${pasaporte}`, user.nombre + ' ' + user.apellidos, user.pais, pasaporte);    
-        console.log("imagenGenerada", imagenGenerada);    
-        const imagenBuffer = Buffer.from(imagenGenerada, "base64").toJSON();
-        console.log("imagenBuffer", imagenBuffer);    
-        res.send(imagenBuffer)
-
-        // res.writeHead(200, {
-        //     'Content-Type': 'image/png',
-        //     'Content-Disposition': 'attachment; filename=pasaporte.png',
-        //     'Content-Length': img.length
-        //   });
-        //   res.end(img);
-        // res.set({'Content-Type': 'image/png'});
-        // res.send(img);
-        // res.writeHead(200, { 'Content-Type': 'image/png' });
-        // res.end(img, 'binary');
-    }
-    catch(err){
-        console.log("error", err);
-        res.status(401).json({ message: err });
     }
 });
 
