@@ -60,25 +60,52 @@ router.get("/count", async (req, res) => {
   }
 });
 
-router.get("/descargar-pdf", async (req, res) => {
-  /* Generar el PDF */
-  console.log("object");
+router.get("/descargar/:type/:id", async (req, res) => {
+  const user = await Usuario.findById(req.params.id);
   const browser = await puppeteer.launch({ args: ["--no-sandbox"] });
   const page = await browser.newPage();
-  await page.goto(
-    "https://ruidea-template.netlify.app/?nombre=Lisandro&apellidos=Acu%C3%B1a&fechaNacimiento=13/03/2004&pais=Argentina&numeroDocumento=45584606&numeroPasaporte=3"
-  );
-  const buffer = await page.pdf({
-    width: "1000",
-    height: "589",
-    printBackground: true,
-    path: "./prueba.pdf",
-    pageRanges: "1",
-  });
-  await browser.close();
 
-  // We can directly serve this buffer to the browser.
-  res.send(buffer);
+  const string = new Date(Date.parse(user.fechaNacimiento))
+    .toISOString()
+    .split("-");
+
+  const dateString = `${string[2].split("T")[0]}/${string[1]}/${string[0]}`;
+
+  await page.goto(
+    `https://ruidea-template.netlify.app/?apellidos=${user.apellidos}&nombre=${user.nombre}&fechaNacimiento=${dateString}&pais=${user.paisResidencia}&numeroDocumento=${user.numeroDocumento}&numeroPasaporte=${user.numeroPasaporte}`
+  );
+
+  let buffer;
+  if (req.params.type === "pdf") {
+    buffer = await page.pdf({
+      width: "1000",
+      height: "589",
+      printBackground: true,
+      encoding: "base64",
+      pageRanges: "1",
+    });
+    await browser.close();
+
+    res.set({
+      "Content-Type": "application/pdf",
+      "Content-Length": buffer.length,
+    });
+    res.send(buffer);
+  } else if (req.params.type === "img") {
+    await page.setViewport({ width: 1000, height: 590, deviceScaleFactor: 2 });
+    buffer = await page.screenshot({
+      type: "jpeg",
+      quality: 100,
+    });
+
+    await browser.close();
+
+    res.set({
+      "Content-Type": "image/jpeg",
+      "Content-Length": buffer.length,
+    });
+    res.send(buffer);
+  }
 });
 
 module.exports = router;
