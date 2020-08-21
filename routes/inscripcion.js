@@ -2,9 +2,8 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcrypt');
 const Usuario = require('../models/modeloUsuario');
-const { json } = require('body-parser');
 
-router.get('/', async(req, res) => {
+router.get('/', async (req, res) => {
     try {
         const users = await Usuario.find();
         res.json(users);
@@ -14,13 +13,15 @@ router.get('/', async(req, res) => {
 });
 
 // pasar modeloUsuario
-router.post('/', async(req, res) => {
+router.post('/', async (req, res) => {
     const user = req.body;
 
     try {
         user.password = await bcrypt.hash(user.password, 10);
         user.fechaNacimiento = new Date(user.fechaNacimiento);
         user.fechaCreacion = Date.now();
+        user.linkArchivos = `ftp://pasaporte%2540dea.ong@caebes-cp50.wordpresstemporal.com/${user.correoElectronico}`;
+
         const savedUser = await Usuario(user).save();
         res.json(savedUser);
 
@@ -32,36 +33,37 @@ router.post('/', async(req, res) => {
 });
 
 // pasar modeluUsario
-router.put('/actualizar', async(req, res) => {
-    try{
+router.put('/actualizar', async (req, res) => {
+    try {
         const user = req.body;
-        const update = await Usuario.findOneAndUpdate({ _id: user._id}, { $set: {
-            nombre:  user.nombre,
-            apellidos: user.apellidos,
-            paisResidencia: user.paisResidencia,
-            localidadResidencia: user.localidadResidencia,
-            lugarNacimiento: user.lugarNacimiento,
-            numeroDocumento: user.numeroDocumento,
-            fechaNacimiento: user.fechaNacimiento,
-            correoElectronico: user.correoElectronico,
-            numeroTelefono: user.numeroTelefono,
-            diagnostico: {
-                dislexia: user["diagnostico"].dislexia,
-                discalculia: user["diagnostico"].discalculia,
-                disortografía: user["diagnostico"].disortografía,
-                dispraxia: user["diagnostico"].dispraxia,
-                tdah: user["diagnostico"].tdah
-            },
-            linkDiagnostico: user.linkDiagnostico,
-            linkPasaporte: user.linkPasaporte,
-            password: await bcrypt.hash(user.password, 10),
-            fechaCreacion: Date.now(),
-            estado: "pendiente"
+        const update = await Usuario.findOneAndUpdate({ _id: user._id }, {
+            $set: {
+                nombre: user.nombre,
+                apellidos: user.apellidos,
+                paisResidencia: user.paisResidencia,
+                localidadResidencia: user.localidadResidencia,
+                lugarNacimiento: user.lugarNacimiento,
+                numeroDocumento: user.numeroDocumento,
+                fechaNacimiento: user.fechaNacimiento,
+                correoElectronico: user.correoElectronico,
+                numeroTelefono: user.numeroTelefono,
+                diagnostico: {
+                    dislexia: user["diagnostico"].dislexia,
+                    discalculia: user["diagnostico"].discalculia,
+                    disortografía: user["diagnostico"].disortografía,
+                    dispraxia: user["diagnostico"].dispraxia,
+                    tdah: user["diagnostico"].tdah
+                },
+                linkArchivos: user.linkArchivos,
+                password: await bcrypt.hash(user.password, 10),
+                fechaCreacion: Date.now(),
+                estado: "pendiente"
 
-        }});
+            }
+        });
         res.json({ update });
     }
-    catch(err) {
+    catch (err) {
         console.log(err);
         res.json({ message: err }).status(401);
     }
@@ -71,25 +73,36 @@ router.put('/actualizar', async(req, res) => {
 // {
 //     mail: correoElectronico
 // }
-router.post('/comprobar-mail', async(req, res) => {
-    try{
+router.post('/comprobar-mail', async (req, res) => {
+    try {
         const user = await Usuario.exists({ correoElectronico: req.body.mail });
         console.log(user);
-        if(user) res.json({ disponible: false });
+        if (user) res.json({ disponible: false });
         else res.json({ disponible: true });
     }
-    catch(err){
+    catch (err) {
         res.json({ message: err });
     }
 });
 
 // ignorar
-router.post('/borrar', async(req,res) => {
-    try{
+router.post('/borrar', async (req, res) => {
+    try {
         const users = await Usuario.deleteMany();
         res.json(users);
     }
-    catch(err) {
+    catch (err) {
+        console.log(err);
+        res.status(401).json({ message: err });
+    }
+})
+
+router.delete('/:id', async (req, res) => {
+    try {
+        const user = await Usuario.findByIdAndDelete(req.params.id);
+        res.json({ message: "Eliminado", user });
+    }
+    catch (err) {
         console.log(err);
         res.status(401).json({ message: err });
     }

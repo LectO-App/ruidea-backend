@@ -18,8 +18,7 @@ const Usuario = mongoose.Schema({
         dispraxia: { type: Boolean, required: true },
         tdah: { type: Boolean, required: true }
     },
-    linkDiagnostico: { type: String, required: true },
-    linkPasaporte: { type: String, required: true },
+    linkArchivos: { type: String, required: true },
     password: { type: String, required: true },
     // hasta acá
     fechaCreacion: { type: Date, required: true },
