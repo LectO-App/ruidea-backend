@@ -3,13 +3,14 @@ const router = express.Router();
 const Usuario = require("../models/modeloUsuario");
 const bcrypt = require("bcrypt");
 const { route } = require("./inscripcion");
+const auth = require("../middlewares/request-auth");
 
 // pasar JSON del estilo
 // {
 //     user: user,
 //     password: password
 // }
-router.post("/login", async (req, res) => {
+router.post("/login", auth, async (req, res) => {
   try {
     if (req.body.user == process.env.USER_ADMIN) {
       if (
@@ -32,7 +33,7 @@ router.post("/login", async (req, res) => {
 //     "estado": "aceptado/revision/rechazado/pendiente (este último si aún no lo revisó)",
 //     "mensajeMedico": vacío si aceptado, completo si pide revisión
 // }
-router.post("/respuesta", async (req, res) => {
+router.post("/respuesta", auth, async (req, res) => {
   try {
     const request = req.body;
     switch (request.estado) {
@@ -88,7 +89,7 @@ router.post("/respuesta", async (req, res) => {
 // {
 //     condicion: "pendiente/aceptado/rechazado/revision o vacio si quiere todos"
 // }
-router.post("/solicitudes", async (req, res) => {
+router.post("/solicitudes", auth, async (req, res) => {
   try {
     if (req.body.condicion == "") var usuarios = await Usuario.find();
     else var usuarios = await Usuario.find({ estado: req.body.condicion });
@@ -99,7 +100,7 @@ router.post("/solicitudes", async (req, res) => {
   }
 });
 
-router.post("/solicitudes/:id", async (req, res) => {
+router.post("/solicitudes/:id", auth, async (req, res) => {
   try {
     const usuario = await Usuario.findOne({ _id: req.params.id });
     res.json({ usuario });

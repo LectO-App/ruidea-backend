@@ -3,9 +3,11 @@ const router = express.Router();
 const bcrypt = require("bcrypt");
 const puppeteer = require("puppeteer");
 const Usuario = require("../models/modeloUsuario");
+const auth = require("../middlewares/request-auth");
 
 router.post(
   "/verificar/:numeroDocumento/:numeroPasaporte",
+  auth,
   async (req, res) => {
     const usuarioSolicitado = await Usuario.findOne({
       numeroPasaporte: req.params.numeroPasaporte,
@@ -19,7 +21,7 @@ router.post(
   }
 );
 
-router.get("/estado/:id", async (req, res) => {
+router.get("/estado/:id", auth, async (req, res) => {
   const usuarioSolicitado = await Usuario.findOne({ _id: req.params.id });
 
   res.json(usuarioSolicitado);
@@ -30,7 +32,7 @@ router.get("/estado/:id", async (req, res) => {
 //     "user": mail o numero de pasaporte
 //     "password": contraseña
 // }
-router.post("/login", async (req, res) => {
+router.post("/login", auth, async (req, res) => {
   try {
     // Busco el usuario
     if (!isNaN(req.body.user))
@@ -51,7 +53,7 @@ router.post("/login", async (req, res) => {
 });
 
 // Ignorar
-router.get("/count", async (req, res) => {
+router.get("/count", auth, async (req, res) => {
   try {
     const cant = await Usuario.countDocuments();
     res.json({ cant: cant });
@@ -60,7 +62,7 @@ router.get("/count", async (req, res) => {
   }
 });
 
-router.get("/descargar/:type/:id", async (req, res) => {
+router.get("/descargar/:type/:id", auth, async (req, res) => {
   const user = await Usuario.findById(req.params.id);
   const browser = await puppeteer.launch({ args: ["--no-sandbox"] });
   const page = await browser.newPage();
