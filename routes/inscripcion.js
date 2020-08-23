@@ -35,6 +35,7 @@ router.post("/", auth, async (req, res) => {
 });
 
 router.post("/subir-archivos/:email", async (req, res) => {
+  console.log(process.env.FTP_KEYS.split(":")[0]);
   const email = req.params.email;
 
   const c = new Client();
