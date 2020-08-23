@@ -35,36 +35,40 @@ router.post("/", auth, async (req, res) => {
 });
 
 router.post("/subir-archivos/:email", async (req, res) => {
-  const email = req.params.email;
+  try {
+    const email = req.params.email;
 
-  const c = new Client();
+    const c = new Client();
 
-  c.on("ready", () => {
-    c.mkdir(`./${email}`, true, (err) => {
-      if (err) throw err;
-      for (file of Object.values(req.files)) {
-        c.put(
-          file.data,
-          `${email}/(${new Date().toLocaleString()}) ${file.name}`,
-          (err) => {
-            if (err) throw err;
-            c.end();
-          }
-        );
-      }
+    c.on("ready", () => {
+      c.mkdir(`./${email}`, true, (err) => {
+        if (err) throw err;
+        for (file of Object.values(req.files)) {
+          c.put(
+            file.data,
+            `${email}/(${new Date().toLocaleString()}) ${file.name}`,
+            (err) => {
+              if (err) throw err;
+              c.end();
+            }
+          );
+        }
 
-      res.json({
-        message: "Funciona!",
-        link: `ftp://pasaporte%2540dea.ong@caebes-cp50.wordpresstemporal.com/${email}`,
+        res.json({
+          message: "Funciona!",
+          link: `ftp://pasaporte%2540dea.ong@caebes-cp50.wordpresstemporal.com/${email}`,
+        });
       });
     });
-  });
 
-  c.connect({
-    host: process.env.FTP_HOST,
-    user: process.env.FTP_USER,
-    password: process.env.FTP_KEY,
-  });
+    c.connect({
+      host: process.env.FTP_HOST,
+      user: process.env.FTP_USER,
+      password: process.env.FTP_KEY,
+    });
+  } catch (err) {
+    console.log(err);
+  }
 });
 
 router.put("/actualizar", auth, async (req, res) => {
