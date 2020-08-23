@@ -61,11 +61,10 @@ router.post("/subir-archivos/:email", async (req, res) => {
     });
   });
 
-  const [host, userFtp, password] = process.env.FTP_KEYS.split(":");
   c.connect({
-    host,
-    user: userFtp,
-    password,
+    host: process.env.FTP_HOST,
+    user: process.env.FTP_USER,
+    password: process.env.FTP_KEY,
   });
 });
 
