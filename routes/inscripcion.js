@@ -3,8 +3,7 @@ const router = express.Router();
 const bcrypt = require("bcrypt");
 const Usuario = require("../models/modeloUsuario");
 const auth = require("../middlewares/request-auth");
-/* const Client = require("ftp"); */
-const ftp = require("jsftp");
+const Client = require("ftp");
 
 router.get("/", auth, async (req, res) => {
   try {
