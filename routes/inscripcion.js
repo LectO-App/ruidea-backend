@@ -66,6 +66,8 @@ router.post("/subir-archivos/:email", async (req, res) => {
       posrt: 21,
       user: "pasaporte@dea.ong",
       password: "Dislexia123",
+      connTimeout: 30000,
+      pasvTimeout: 30000,
     });
   } catch (err) {
     console.log(err);
