@@ -3,7 +3,8 @@ const router = express.Router();
 const bcrypt = require("bcrypt");
 const Usuario = require("../models/modeloUsuario");
 const auth = require("../middlewares/request-auth");
-const Client = require("ftp");
+/* const Client = require("ftp"); */
+const ftp = require("jsftp");
 
 router.get("/", auth, async (req, res) => {
   try {
@@ -62,9 +63,9 @@ router.post("/subir-archivos/:email", async (req, res) => {
     });
 
     c.connect({
-      host: process.env.FTP_HOST,
-      user: process.env.FTP_USER,
-      password: process.env.FTP_KEY,
+      host: "caebes-cp50.wordpresstemporal.com",
+      user: "pasaporte@dea.ong",
+      password: "Dislexia123",
     });
   } catch (err) {
     console.log(err);
