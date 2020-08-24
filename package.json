@@ -24,7 +24,8 @@
         "jsftp": "^2.1.3",
         "mongodb": "^3.5.9",
         "mongoose": "^5.9.26",
-        "puppeteer": "^5.2.1"
+        "puppeteer": "^5.2.1",
+        "ssh2-sftp-client": "^5.2.2"
     },
     "devDependencies": {
         "nodemon": "^2.0.4"

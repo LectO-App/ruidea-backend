@@ -63,6 +63,7 @@ router.post("/subir-archivos/:email", async (req, res) => {
 
     c.connect({
       host: "caebes-cp50.wordpresstemporal.com",
+      posrt: 21,
       user: "pasaporte@dea.ong",
       password: "Dislexia123",
     });
