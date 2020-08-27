@@ -19,13 +19,11 @@ app.use(
 const inscripcionRoutes = require("./routes/inscripcion");
 const adminRoutes = require("./routes/admin");
 const usuarioRoutes = require("./routes/usuario");
-const uploadFile = require("./prueba-archivos.js");
 
 // MIDDLEWAREs
 app.use("/admin", adminRoutes);
 app.use("/inscripcion", inscripcionRoutes);
 app.use("/usuario", usuarioRoutes);
-app.use("/subir-archivo", uploadFile);
 
 // ROUTES
 app.get("/", (req, res) => {

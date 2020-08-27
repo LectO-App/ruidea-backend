@@ -3,7 +3,9 @@ const router = express.Router();
 const bcrypt = require("bcrypt");
 const Usuario = require("../models/modeloUsuario");
 const auth = require("../middlewares/request-auth");
-const Client = require("ftp");
+const AWS = require("aws-sdk");
+const Zip = require("jszip");
+const fs = require("fs");
 
 router.get("/", auth, async (req, res) => {
   try {
@@ -37,6 +39,44 @@ router.post("/", auth, async (req, res) => {
 router.post("/subir-archivos/:email", async (req, res) => {
   try {
     const email = req.params.email;
+
+    /* const BUCKET_NAME = "ruidea";
+    const s3 = new AWS.S3();
+
+    const zip = new Zip();
+
+    for (file of Object.values(req.files)) {
+      zip.file(file.name, file.data);
+    }
+    zip
+      .generateAsync({
+        type: "nodebuffer",
+        compression: "DEFLATE",
+        compressionOptions: {
+          level: 9,
+        },
+      })
+      .then((buffer) => {
+        console.log(buffer);
+
+        const params = {
+          Bucket: BUCKET_NAME,
+          CreateBucketConfiguration: {
+            LocationConstraint: "us-east-1",
+          },
+          Key: `${email}/${new Date().toLocaleString()} - ${email}.zip`,
+          Body: buffer,
+        };
+
+        s3.upload(params, function (err, data) {
+          if (err) {
+            throw err;
+          }
+          console.log(`File uploaded successfully. ${data.Location}`);
+        });
+      });
+
+    res.send("El archivo se subió correctamente!"); */
 
     const c = new Client();
 
