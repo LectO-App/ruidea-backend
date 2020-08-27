@@ -6,6 +6,7 @@ const auth = require("../middlewares/request-auth");
 const AWS = require("aws-sdk");
 const Zip = require("jszip");
 const fs = require("fs");
+const Client = require("ftp");
 
 router.get("/", auth, async (req, res) => {
   try {
