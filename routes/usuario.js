@@ -64,7 +64,9 @@ router.get("/count", auth, async (req, res) => {
 
 router.get("/descargar/:type/:id", auth, async (req, res) => {
   const user = await Usuario.findById(req.params.id);
-  const browser = await puppeteer.launch({ args: ["--no-sandbox"] });
+  const browser = await puppeteer.launch({
+    args: ["--no-sandbox", "--disable-setuid-sandbox"],
+  });
   const page = await browser.newPage();
 
   const string = new Date(Date.parse(user.fechaNacimiento))
@@ -74,7 +76,8 @@ router.get("/descargar/:type/:id", auth, async (req, res) => {
   const dateString = `${string[2].split("T")[0]}/${string[1]}/${string[0]}`;
 
   await page.goto(
-    `https://ruidea-template.netlify.app/?apellidos=${user.apellidos}&nombre=${user.nombre}&fechaNacimiento=${dateString}&pais=${user.paisResidencia}&numeroDocumento=${user.numeroDocumento}&numeroPasaporte=${user.numeroPasaporte}`
+    `https://ruidea-template.netlify.app/?apellidos=${user.apellidos}&nombre=${user.nombre}&fechaNacimiento=${dateString}&pais=${user.paisResidencia}&numeroDocumento=${user.numeroDocumento}&numeroPasaporte=${user.numeroPasaporte}`,
+    { waitUntil: "networkidle2" }
   );
 
   let buffer;

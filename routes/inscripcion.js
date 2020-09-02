@@ -3,10 +3,14 @@ const router = express.Router();
 const bcrypt = require("bcrypt");
 const Usuario = require("../models/modeloUsuario");
 const auth = require("../middlewares/request-auth");
-const AWS = require("aws-sdk");
+/* const AWS = require("aws-sdk");
+const jwt = require("jsonwebtoken");
+*/
 const Zip = require("jszip");
-const fs = require("fs");
-const Client = require("ftp");
+const azureStorage = require("azure-storage");
+const getStream = require("into-stream");
+
+const sendEmail = require("../functions/sendEmail");
 
 router.get("/", auth, async (req, res) => {
   try {
@@ -27,9 +31,10 @@ router.post("/", auth, async (req, res) => {
     user.fechaCreacion = Date.now();
     user.linkArchivos = `ftp://pasaporte%2540dea.ong@caebes-cp50.wordpresstemporal.com/${user.correoElectronico}`;
 
+    await sendEmail(user._id);
+
     const savedUser = await Usuario(user).save();
 
-    // RESPUESTA
     res.json(savedUser);
   } catch (err) {
     console.log(err);
@@ -40,15 +45,14 @@ router.post("/", auth, async (req, res) => {
 router.post("/subir-archivos/:email", async (req, res) => {
   try {
     const email = req.params.email;
-
-    /* const BUCKET_NAME = "ruidea";
-    const s3 = new AWS.S3();
+    const blobService = azureStorage.createBlobService();
 
     const zip = new Zip();
 
     for (file of Object.values(req.files)) {
       zip.file(file.name, file.data);
     }
+
     zip
       .generateAsync({
         type: "nodebuffer",
@@ -58,9 +62,25 @@ router.post("/subir-archivos/:email", async (req, res) => {
         },
       })
       .then((buffer) => {
-        console.log(buffer);
+        const stream = getStream(buffer);
+        const blobName = `${email}/${new Date().toLocaleString()} - ${email}.zip`;
 
-        const params = {
+        const streamLength = buffer.length;
+        blobService.createBlockBlobFromStream(
+          "ruidea",
+          blobName,
+          stream,
+          streamLength,
+          (error) => {
+            if (error) {
+              console.log(error);
+            } else {
+              res.send("Subida");
+            }
+          }
+        );
+
+        /* const params = {
           Bucket: BUCKET_NAME,
           CreateBucketConfiguration: {
             LocationConstraint: "us-east-1",
@@ -74,12 +94,18 @@ router.post("/subir-archivos/:email", async (req, res) => {
             throw err;
           }
           console.log(`File uploaded successfully. ${data.Location}`);
-        });
+        }); */
       });
+
+    /* const BUCKET_NAME = "ruidea";
+    const s3 = new AWS.S3();
+
+
+      
 
     res.send("El archivo se subió correctamente!"); */
 
-    const c = new Client();
+    /* const c = new Client();
 
     c.on("ready", () => {
       c.mkdir(`./${email}`, true, (err) => {
@@ -109,7 +135,7 @@ router.post("/subir-archivos/:email", async (req, res) => {
       password: "Dislexia123",
       connTimeout: 30000,
       pasvTimeout: 30000,
-    });
+    });*/
   } catch (err) {
     console.log(err);
   }

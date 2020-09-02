@@ -19,15 +19,17 @@ app.use(
 const inscripcionRoutes = require("./routes/inscripcion");
 const adminRoutes = require("./routes/admin");
 const usuarioRoutes = require("./routes/usuario");
+const emailVerificationRoutes = require("./routes/emailVerification");
 
 // MIDDLEWAREs
 app.use("/admin", adminRoutes);
 app.use("/inscripcion", inscripcionRoutes);
 app.use("/usuario", usuarioRoutes);
+app.use("/emailVerification", emailVerificationRoutes);
 
 // ROUTES
 app.get("/", (req, res) => {
-  res.send("We are on home");
+  res.send("We are on home guys!!!");
 });
 
 // Connecting to data-base
@@ -40,7 +42,7 @@ mongoose.connect(
     useFindAndModify: false,
   },
   () => {
-    console.log("Conncected to DB");
+    console.log("Conncected to DB!!!");
   }
 );
 

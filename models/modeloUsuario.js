@@ -1,5 +1,4 @@
 const mongoose = require("mongoose");
-const { json } = require("body-parser");
 
 const Usuario = mongoose.Schema({
   nombre: { type: String, required: true },
@@ -27,6 +26,7 @@ const Usuario = mongoose.Schema({
   linkArchivos: { type: String },
   password: { type: String, required: true },
   // hasta acá
+  emailVerificado: { type: Boolean, default: false },
   fechaCreacion: { type: Date, required: true },
   estado: { type: String, default: "pendiente" },
   mensajeMedico: { type: String, default: "" },
