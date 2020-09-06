@@ -10,7 +10,7 @@ const Zip = require("jszip");
 const azureStorage = require("azure-storage");
 const getStream = require("into-stream");
 
-const sendEmail = require("../functions/sendEmail");
+const { sendEmail } = require("../functions/sendEmail");
 
 router.get("/", auth, async (req, res) => {
   try {
