@@ -5,7 +5,7 @@ const Usuario = require("../models/modeloUsuario");
 const auth = require("../middlewares/request-auth");
 const jwt = require("jsonwebtoken");
 
-const sendEmail = require("../functions/sendEmail");
+const { sendEmail, sendEmailAdmin } = require("../functions/sendEmail");
 
 router.post("/confirm/:token", async (req, res) => {
   try {
@@ -33,5 +33,7 @@ router.post("/resend/:id", async (req, res) => {
     console.log(err);
   }
 });
-
+router.get("/admin/:email", (req, res) => {
+  sendEmailAdmin(req.params.email, "rechazado");
+});
 module.exports = router;

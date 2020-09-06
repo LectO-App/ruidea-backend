@@ -23,7 +23,6 @@ const Usuario = mongoose.Schema({
     dispraxia: { type: Boolean, required: true },
     tdah: { type: Boolean, required: true },
   },
-  linkArchivos: { type: String },
   password: { type: String, required: true },
   // hasta acá
   emailVerificado: { type: Boolean, default: false },

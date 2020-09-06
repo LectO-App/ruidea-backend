@@ -36,4 +36,66 @@ const sendEmail = async (id) => {
   });
 };
 
-module.exports = sendEmail;
+const sendEmailAdmin = async (email, estado) => {
+  let transporter = await nodemailer.createTransport({
+    host: "c1341585.ferozo.com",
+    port: 465,
+    secure: true,
+    auth: {
+      user: "contacto@lecto.app", // generated ethereal user
+      pass: "Exdyslexiapp2020", // generated ethereal password
+    },
+  });
+
+  switch (estado) {
+    case "aceptado":
+      await transporter.sendMail({
+        from: '"RUIDEA" contacto@lecto.app', // sender address
+        to: email,
+        subject: "Tu solicitud de RUIDEA",
+        html: `
+            <h3>Buenos días!</h3> 
+            <p>Te agradecemos por registrarte en RUIDEA!</p> 
+            <p>Luego de que lo revisen, los especialistas determinaron que su solicitud era correcta, por lo que fue aceptada!</p>
+            <p>¿Qué es lo siguiente? Entra a RUIDEA para descargar el pasaporte, ya sea en formato PDF o JPG</p> 
+            <a href='http://localhost:3000/login'>Ir a RUIDEA</a>
+            `,
+      });
+      break;
+    case "revision":
+      const user = await Usuario.find({ correoElectronico: email });
+      await transporter.sendMail({
+        from: '"RUIDEA" contacto@lecto.app', // sender address
+        to: email,
+        subject: "Tu solicitud de RUIDEA",
+        html: `
+        <h3>Buenos días!</h3> 
+        <p>Te agradecemos por registrarte en RUIDEA!</p> 
+        <p>Luego de que lo revisen, los especialistas determinaron que su solicitud estaba incompleta o incorrecta.</p>
+        <p>Mensaje del especialista:</p>
+        <p><i>{user.mensajeMedico}</i></p>
+        <p>¿Qué es lo siguiente? Entra a RUIDEA para volver a enviar el formulario</p> 
+        <a href='http://localhost:3000/dashboard'>Ir a RUIDEA</a>
+            `,
+      });
+      break;
+    case "rechazado":
+      const userR = await Usuario.find({ correoElectronico: email });
+      await transporter.sendMail({
+        from: '"RUIDEA" contacto@lecto.app', // sender address
+        to: email,
+        subject: "Tu solicitud de RUIDEA",
+        html: `
+        <h3>Buenos días!</h3> 
+        <p>Te agradecemos por registrarte en RUIDEA!</p> 
+        <p>Lo sentimos, pero luego de que lo revisen, los especialistas determinaron que su solicitud era incorrecta y fue rechazada.</p>
+        <p>Mensaje del especialista:</p>
+        <p><i>${userR.mensajeMedico}</i></p>
+        <a href='http://localhost:3000/dashboard'>Ir a RUIDEA</a>
+            `,
+      });
+      break;
+  }
+};
+
+module.exports = { sendEmail, sendEmailAdmin };

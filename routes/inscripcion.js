@@ -29,13 +29,14 @@ router.post("/", auth, async (req, res) => {
     user.password = await bcrypt.hash(user.password, 10);
     user.fechaNacimiento = new Date(user.fechaNacimiento);
     user.fechaCreacion = Date.now();
-    user.linkArchivos = `ftp://pasaporte%2540dea.ong@caebes-cp50.wordpresstemporal.com/${user.correoElectronico}`;
 
-    await sendEmail(user._id);
-
-    const savedUser = await Usuario(user).save();
-
-    res.json(savedUser);
+    await Usuario(user).save(async (err, user) => {
+      if (err) {
+        return res.status(401).json(err);
+      }
+      await sendEmail(user._id);
+      res.json(user);
+    });
   } catch (err) {
     console.log(err);
     res.status(401).json({ message: err });
@@ -43,13 +44,16 @@ router.post("/", auth, async (req, res) => {
 });
 
 router.post("/subir-archivos/:email", async (req, res) => {
+  if (!req.files) {
+    return res.status(400).send("Por favor envia un archivo");
+  }
   try {
     const email = req.params.email;
     const blobService = azureStorage.createBlobService();
 
     const zip = new Zip();
 
-    for (file of Object.values(req.files)) {
+    for (let file of Object.values(req.files)) {
       zip.file(file.name, file.data);
     }
 
@@ -63,7 +67,7 @@ router.post("/subir-archivos/:email", async (req, res) => {
       })
       .then((buffer) => {
         const stream = getStream(buffer);
-        const blobName = `${email}/${new Date().toLocaleString()} - ${email}.zip`;
+        const blobName = `${email}/${new Date().toISOString()} - ${email}.zip`;
 
         const streamLength = buffer.length;
         blobService.createBlockBlobFromStream(
@@ -138,6 +142,41 @@ router.post("/subir-archivos/:email", async (req, res) => {
     });*/
   } catch (err) {
     console.log(err);
+  }
+});
+
+router.get("/link-archivos/:id", async (req, res) => {
+  try {
+    const blobService = azureStorage.createBlobService();
+
+    const user = await Usuario.findById(req.params.id);
+
+    blobService.listBlobsSegmentedWithPrefix(
+      "ruidea",
+      `${user.correoElectronico}/`,
+      undefined,
+      async (error, result) => {
+        if (error) return console.log(error);
+        const entries = result.entries;
+
+        let newest = new Date(0);
+        let fileToDownload = {};
+
+        for await (let file of entries) {
+          const date = new Date(file.name.split("/")[1].split(" -")[0]);
+          if (date > newest) {
+            newest = date;
+            fileToDownload = file;
+          }
+        }
+
+        res.send(
+          `https://ruidea.blob.core.windows.net/ruidea/${fileToDownload.name}`
+        );
+      }
+    );
+  } catch (err) {
+    res.status(400).send(err);
   }
 });
 

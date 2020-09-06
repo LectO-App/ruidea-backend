@@ -2,7 +2,7 @@ const express = require("express");
 const router = express.Router();
 const Usuario = require("../models/modeloUsuario");
 const bcrypt = require("bcrypt");
-const { route } = require("./inscripcion");
+const { sendEmailAdmin } = require("../functions/sendEmail");
 const auth = require("../middlewares/request-auth");
 
 // pasar JSON del estilo
@@ -36,13 +36,14 @@ router.post("/login", auth, async (req, res) => {
 router.post("/respuesta", auth, async (req, res) => {
   try {
     const request = req.body;
+    sendEmailAdmin(request.emailUsuario, request.estado);
     switch (request.estado) {
       case "aceptado":
         var numeroPasaporteActual = await Usuario.find({
           estado: "aceptado",
         }).countDocuments();
         const user = await Usuario.findOne({
-          correoElectronico: req.body.emailUsuario,
+          correoElectronico: request.emailUsuario,
         });
         if (user.estado == "aceptado")
           numeroPasaporteActual = user.numeroPasaporte - 1;
