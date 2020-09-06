@@ -4,5 +4,6 @@
         ".vscode{,/**}"
     ],
     "appService.defaultWebAppToDeploy": "None",
-    "appService.deploySubpath": "."
+    "appService.deploySubpath": ".",
+    "liveServer.settings.port": 5501
 }

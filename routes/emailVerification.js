@@ -35,4 +35,8 @@ router.post("/resend/:id", async (req, res) => {
   }
 });
 
+router.post("/prueba", async (req, res) => {
+  await sendEmail("req.params.id");
+});
+
 module.exports = router;
