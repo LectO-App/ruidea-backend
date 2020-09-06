@@ -4,6 +4,7 @@ const bcrypt = require("bcrypt");
 const Usuario = require("../models/modeloUsuario");
 const auth = require("../middlewares/request-auth");
 const jwt = require("jsonwebtoken");
+const nodemailer = require("nodemailer");
 
 const { sendEmail, sendEmailAdmin } = require("../functions/sendEmail");
 
@@ -33,7 +34,5 @@ router.post("/resend/:id", async (req, res) => {
     console.log(err);
   }
 });
-router.get("/admin/:email", (req, res) => {
-  sendEmailAdmin(req.params.email, "rechazado");
-});
+
 module.exports = router;
