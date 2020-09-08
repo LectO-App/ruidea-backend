@@ -169,9 +169,8 @@ router.get("/link-archivos/:id", async (req, res) => {
             fileToDownload = file;
           }
         }
-
         res.send(
-          `https://ruidea.blob.core.windows.net/ruidea/${fileToDownload.name}`
+          `https://ruideaalmacenamiento.blob.core.windows.net/ruidea/${fileToDownload.name}`
         );
       }
     );
