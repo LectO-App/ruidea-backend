@@ -153,7 +153,7 @@ router.get("/link-archivos/:id", async (req, res) => {
 
     blobService.listBlobsSegmentedWithPrefix(
       "ruidea",
-      `${user.correoElectronico}/`,
+      ``,
       undefined,
       async (error, result) => {
         if (error) return console.log(error);
