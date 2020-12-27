@@ -33,10 +33,9 @@ router.post('/respuesta', auth, async (req, res) => {
 		sendEmailAdmin(request.emailUsuario, request.estado);
 		switch (request.estado) {
 			case 'aceptado':
-				var numeroPasaporteActual =
-					(await Usuario.find({
-						estado: 'aceptado',
-					}).countDocuments()) + 1000;
+				var numeroPasaporteActual = await Usuario.find({
+					estado: 'aceptado',
+				}).countDocuments();
 				const user = await Usuario.findOne({
 					correoElectronico: request.emailUsuario,
 				});
@@ -46,7 +45,7 @@ router.post('/respuesta', auth, async (req, res) => {
 					{
 						$set: {
 							estado: 'aceptado',
-							numeroPasaporte: numeroPasaporteActual + 1,
+							numeroPasaporte: numeroPasaporteActual + 1001,
 						},
 					}
 				);
