@@ -94,6 +94,48 @@ router.post('/solicitudes', auth, async (req, res) => {
 	}
 });
 
+router.post('/modificarSolicitud', auth, async (req, res) => {
+	try {
+		var numeroPasaporteActual = await Usuario.find({
+			estado: 'aceptado',
+		}).countDocuments();
+		const modifiedUser = req.body;
+		const user = await Usuario.findOne({
+			_id: modifiedUser.id,
+		});
+		if (user.estado == 'aceptado') numeroPasaporteActual = user.numeroPasaporte - 1;
+		var updatedUser = await Usuario.updateOne(
+			{ _id: modifiedUser.id },
+			{
+				$set: {
+					nombre: modifiedUser.nombre,
+					apellidos: modifiedUser.apellidos,
+					correoElectronico: modifiedUser.correoElectronico,
+					fechaNacimiento: modifiedUser.fechaNacimiento,
+					localidadResidencia: modifiedUser.localidadResidencia,
+					lugarNacimiento: modifiedUser.lugarNacimiento,
+					numeroDocumento: modifiedUser.numeroDocumento,
+					numeroTelefono: modifiedUser.numeroTelefono,
+					paisResidencia: modifiedUser.paisResidencia,
+					diagnostico: {
+						dislexia: modifiedUser.dislexia,
+						discalculia: modifiedUser.discalculia,
+						disortografía: modifiedUser.disortografía,
+						dispraxia: modifiedUser.dispraxia,
+						tdah: modifiedUser.tdah,
+					},
+					estado: 'aceptado',
+					numeroPasaporte: numeroPasaporteActual + 1001,
+				},
+			}
+		);
+
+		res.json({ message: 'Usuario actualizado correctamente!' });
+	} catch (err) {
+		res.status(500).json({ message: 'Hubo un error', err });
+	}
+});
+
 router.post('/solicitudes/:id', auth, async (req, res) => {
 	try {
 		const usuario = await Usuario.findOne({ _id: req.params.id });
