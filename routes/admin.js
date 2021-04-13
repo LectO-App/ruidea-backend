@@ -186,8 +186,7 @@ router.get("/excel", auth, async (req, res) => {
       }
     }
 
-    wb.write("Testing.xlsx");
-    res.send(wb);
+    wb.write("Usuarios.xlsx", res);
   } catch (err) {
     console.log(err);
     res.json({ message: err });
