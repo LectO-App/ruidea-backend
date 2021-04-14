@@ -160,19 +160,20 @@ router.get("/excel", auth, async (req, res) => {
     });
 
     const xlsxHeaders = [
-      ["Estado", "estado"],
-      ["Mensaje del médico", "mensajeMedico"],
-      ["Nro. de pasaporte", "numeroPasaporte"],
-      ["Nro. de documento", "numeroDocumento"],
-      ["Nombre", "nombre"],
-      ["Apellidos", "apellidos"],
-      ["Correo electrónico", "correoElectronico"],
-      ["País de residencia", "paisResidencia"],
-      ["Localidad", "localidadResidencia"],
-      ["Lugar de nacimiento", "lugarNacimiento"],
-      ["Fecha de nacimiento", "fechaNacimiento"],
-      ["Nro. teléfono", "numeroTelefono"],
-      ["Fecha de creación", "fechaCreacion"],
+      // [título en el encabezado, atributo en el schema, tipo de dato en la celda]
+      ["Estado", "estado", "string"],
+      ["Mensaje del médico", "mensajeMedico", "string"],
+      ["Nro. de pasaporte", "numeroPasaporte", "string"],
+      ["Nro. de documento", "numeroDocumento", "string"],
+      ["Nombre", "nombre", "string"],
+      ["Apellidos", "apellidos", "string"],
+      ["Correo electrónico", "correoElectronico", "string"],
+      ["País de residencia", "paisResidencia", "string"],
+      ["Localidad", "localidadResidencia", "string"],
+      ["Lugar de nacimiento", "lugarNacimiento", "string"],
+      ["Fecha de nacimiento", "fechaNacimiento", "date"],
+      ["Nro. teléfono", "numeroTelefono", "string"],
+      ["Fecha de creación", "fechaCreacion", "date"],
     ];
     for (var i = 1; i <= xlsxHeaders.length; i++) {
       ws.cell(1, i)
@@ -182,7 +183,7 @@ router.get("/excel", auth, async (req, res) => {
 
     for (var i = 0; i < usuarios.length; i++) {
       for (var j = 0; j < xlsxHeaders.length; j++) {
-        ws.cell(i + 2, j + 1).string(usuarios[i][xlsxHeaders[j][1]].toString());
+        ws.cell(i + 2, j + 1)[xlsxHeaders[j][2]](usuarios[i][xlsxHeaders[j][1]].toString());
       }
     }
 
