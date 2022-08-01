@@ -1,40 +1,43 @@
 {
-    "name": "rest-api-dev-ed",
-    "version": "1.0.0",
-    "description": "",
-    "main": "index.js",
-    "scripts": {
-        "start": "node app.js",
-        "dev": "nodemon app.js",
-        "img": "nodemon functions/imagen.js",
-        "pdf": "nodemon functions/pdf.js"
-    },
-    "author": "",
-    "license": "ISC",
-    "dependencies": {
-        "@azure/storage-blob": "^12.2.0-preview.1",
-        "archiver": "^5.0.0",
-        "assert": "^2.0.0",
-        "aws-sdk": "^2.738.0",
-        "azure-storage": "^2.10.3",
-        "bcrypt": "^5.0.0",
-        "body-parser": "^1.19.0",
-        "cors": "^2.8.5",
-        "dotenv": "^8.2.0",
-        "excel4node": "^1.7.2",
-        "express": "^4.17.1",
-        "express-fileupload": "^1.2.0",
-        "fs": "0.0.1-security",
-        "into-stream": "^6.0.0",
-        "jsonwebtoken": "^8.5.1",
-        "jszip": "^3.5.0",
-        "mongodb": "^3.5.9",
-        "mongoose": "^5.9.26",
-        "nodemailer": "^6.4.11",
-        "puppeteer": "3.0.4",
-        "ssh2-sftp-client": "^5.2.2"
-    },
-    "devDependencies": {
-        "nodemon": "^2.0.4"
-    }
+	"name": "rest-api-dev-ed",
+	"version": "1.0.0",
+	"description": "",
+	"main": "index.js",
+	"scripts": {
+		"start": "node app.js",
+		"dev": "nodemon app.js",
+		"img": "nodemon functions/imagen.js",
+		"pdf": "nodemon functions/pdf.js"
+	},
+	"engines": {
+		"node": "16.x"
+	},
+	"author": "",
+	"license": "ISC",
+	"dependencies": {
+		"@azure/storage-blob": "^12.2.0-preview.1",
+		"archiver": "^5.0.0",
+		"assert": "^2.0.0",
+		"aws-sdk": "^2.738.0",
+		"azure-storage": "^2.10.3",
+		"bcrypt": "^5.0.0",
+		"body-parser": "^1.19.0",
+		"cors": "^2.8.5",
+		"dotenv": "^8.2.0",
+		"excel4node": "^1.7.2",
+		"express": "^4.17.1",
+		"express-fileupload": "^1.2.0",
+		"fs": "0.0.1-security",
+		"into-stream": "^6.0.0",
+		"jsonwebtoken": "^8.5.1",
+		"jszip": "^3.5.0",
+		"mongodb": "^3.5.9",
+		"mongoose": "^5.9.26",
+		"nodemailer": "^6.4.11",
+		"puppeteer": "3.0.4",
+		"ssh2-sftp-client": "^5.2.2"
+	},
+	"devDependencies": {
+		"nodemon": "^2.0.4"
+	}
 }
