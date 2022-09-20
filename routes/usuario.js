@@ -17,6 +17,16 @@ router.post('/verificar/:numeroDocumento/:numeroPasaporte', auth, async (req, re
 	res.json({ existe: true, usuario: usuarioSolicitado });
 });
 
+router.post('/verificarCheckPassword', async (req, res) => {
+	console.log(req.body, process.env.VERIFY_PASSWORD);
+	try {
+		if ((req.body.password, process.env.VERIFY_PASSWORD)) res.json({ correcto: true });
+		else res.status(401).json({ correcto: false });
+	} catch (err) {
+		res.status(401).json({ message: err, body: req.body });
+	}
+});
+
 router.get('/estado/:id', auth, async (req, res) => {
 	const usuarioSolicitado = await Usuario.findOne({ _id: req.params.id });
 
