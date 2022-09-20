@@ -24,7 +24,7 @@ router.post('/verificarCheckPassword', async (req, res) => {
 		if (password === process.env.VERIFY_PASSWORD) {
 			const usuarioSolicitado = await Usuario.findOne({ numeroPasaporte: pasaporte });
 
-			if (!usuarioSolicitado) return res.json({ existe: false });
+			if (!usuarioSolicitado) return res.status(400).json({ existe: false });
 
 			res.json({ correcto: true, documento: usuarioSolicitado.numeroDocumento, existe: true });
 		} else res.status(401).json({ correcto: false });
