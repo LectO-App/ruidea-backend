@@ -18,10 +18,16 @@ router.post('/verificar/:numeroDocumento/:numeroPasaporte', auth, async (req, re
 });
 
 router.post('/verificarCheckPassword', async (req, res) => {
-	console.log(req.body, process.env.VERIFY_PASSWORD);
+	const { pasaporte, password } = req.body;
+
 	try {
-		if ((req.body.password, process.env.VERIFY_PASSWORD)) res.json({ correcto: true });
-		else res.status(401).json({ correcto: false });
+		if (password === process.env.VERIFY_PASSWORD) {
+			const usuarioSolicitado = await Usuario.findOne({ numeroPasaporte: pasaporte });
+
+			if (!usuarioSolicitado) return res.json({ existe: false });
+
+			res.json({ correcto: true, documento: usuarioSolicitado.numeroDocumento, existe: true });
+		} else res.status(401).json({ correcto: false });
 	} catch (err) {
 		res.status(401).json({ message: err, body: req.body });
 	}
