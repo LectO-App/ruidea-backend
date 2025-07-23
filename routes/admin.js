@@ -14,7 +14,13 @@ const xl = require("excel4node");
 router.post("/login", auth, async (req, res) => {
   try {
     if (req.body.user == process.env.USER_ADMIN) {
-      if (await bcrypt.compare(req.body.password, process.env.CLAVE_HASHEADA_ADMIN)) res.json({ correcto: true });
+      if (
+        await bcrypt.compare(
+          req.body.password,
+          process.env.CLAVE_HASHEADA_ADMIN
+        )
+      )
+        res.json({ correcto: true });
       else res.status(401).json({ correcto: false });
     } else res.status(401).json({ correcto: false });
   } catch (err) {
@@ -40,7 +46,8 @@ router.post("/respuesta", auth, async (req, res) => {
         const user = await Usuario.findOne({
           correoElectronico: request.emailUsuario,
         });
-        if (user.estado == "aceptado") numeroPasaporteActual = user.numeroPasaporte - 1;
+        if (user.estado == "aceptado")
+          numeroPasaporteActual = user.numeroPasaporte - 1;
         var updatedUser = await Usuario.updateOne(
           { correoElectronico: request.emailUsuario },
           {
@@ -104,7 +111,8 @@ router.post("/modificarSolicitud", auth, async (req, res) => {
     const user = await Usuario.findOne({
       _id: modifiedUser.id,
     });
-    if (user.estado == "aceptado") numeroPasaporteActual = user.numeroPasaporte - 1;
+    if (user.estado == "aceptado")
+      numeroPasaporteActual = user.numeroPasaporte - 1;
     var updatedUser = await Usuario.updateOne(
       { _id: modifiedUser.id },
       {
@@ -127,7 +135,9 @@ router.post("/modificarSolicitud", auth, async (req, res) => {
           },
           estado: "aceptado",
           numeroPasaporte:
-            modifiedUser.numeroPasaporte != null ? modifiedUser.numeroPasaporte : numeroPasaporteActual + 1001,
+            modifiedUser.numeroPasaporte != null
+              ? modifiedUser.numeroPasaporte
+              : numeroPasaporteActual + 1001,
         },
       }
     );
@@ -183,7 +193,9 @@ router.get("/excel", auth, async (req, res) => {
 
     for (var i = 0; i < usuarios.length; i++) {
       for (var j = 0; j < xlsxHeaders.length; j++) {
-        ws.cell(i + 2, j + 1)[xlsxHeaders[j][2]](usuarios[i][xlsxHeaders[j][1]].toString());
+        ws.cell(i + 2, j + 1)[xlsxHeaders[j][2]](
+          usuarios[i][xlsxHeaders[j][1]].toString()
+        );
       }
     }
 

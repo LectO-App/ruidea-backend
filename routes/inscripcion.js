@@ -161,9 +161,10 @@ router.get('/link-archivos/:id', async (req, res) => {
 					}
 				}
 			}
-			res.send(`https://ruideaalmacenamiento.blob.core.windows.net/ruidea/${fileToDownload.name}`);
+			res.send(`https://ruidea.blob.core.windows.net/ruidea/${fileToDownload.name}`);
 		});
 	} catch (err) {
+		console.log(err);
 		res.status(400).send(err);
 	}
 });

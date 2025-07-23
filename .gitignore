@@ -2,3 +2,6 @@ node_modules/
 .env
 info.txt
 copy-db.js
+user-files
+zip-files
+.DS_Store
