@@ -1,42 +1,38 @@
 const express = require("express");
 const router = express.Router();
-const bcrypt = require("bcrypt");
 const Usuario = require("../models/modeloUsuario");
-const auth = require("../middlewares/request-auth");
-const jwt = require("jsonwebtoken");
-const nodemailer = require("nodemailer");
+const { verifyToken } = require("../functions/tokens");
+const { authUser } = require("../middlewares/session");
+const { emailLimiter } = require("../middlewares/rate-limit");
 
-const { sendEmail, sendEmailAdmin } = require("../functions/sendEmail");
+const { sendEmail } = require("../functions/sendEmail");
 
 router.post("/confirm/:token", async (req, res) => {
   try {
-    const id = jwt.verify(req.params.token, process.env.SECURITY_KEY);
+    const payload = verifyToken(req.params.token);
+    if (payload.purpose !== "email-verify")
+      return res.status(400).json({ message: "Token inválido o expirado." });
+    const user = await Usuario.findById(payload.id);
+    if (!user) return res.status(400).send("No se encontró ningún usuario con ese ID.");
 
-    const newUser = await Usuario.findById(id.id);
-
-    newUser.emailVerificado = true;
-    await newUser.save();
-
+    user.emailVerificado = true;
+    await user.save();
     res.send("Usuario verificado!");
   } catch (err) {
-    if (err.kind === "ObjectId") {
-      return res.status(400).send("No se encontró ningún usuario con ese ID.");
-    }
-    return res.status(400).json({ err });
+    return res.status(400).json({ message: "Token inválido o expirado." });
   }
 });
 
-router.post("/resend/:id", async (req, res) => {
+// Resend verification to the AUTHENTICATED user only (no arbitrary :id, rate-limited)
+// — closes the unauthenticated outbound-email abuse vector (§11.2).
+router.post("/resend", authUser, emailLimiter, async (req, res) => {
   try {
-    await sendEmail(req.params.id);
+    await sendEmail(req.user.id);
     res.send("Email de verificación enviado nuevamente");
   } catch (err) {
-    console.log(err);
+    req.log && req.log.error({ err }, "resend failed");
+    res.status(400).send("No se pudo enviar el email");
   }
-});
-
-router.post("/prueba", async (req, res) => {
-  await sendEmailAdmin("gonzalodiazdevivar@gmail.com", "revision");
 });
 
 module.exports = router;

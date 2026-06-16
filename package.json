@@ -6,41 +6,42 @@
   "scripts": {
     "start": "node app.js",
     "dev": "nodemon app.js",
-    "img": "nodemon functions/imagen.js",
-    "pdf": "nodemon functions/pdf.js"
+    "lint": "eslint .",
+    "test": "node --test",
+    "push-prod": "az acr build --file Dockerfile --registry ruidea --image ruidea --platform linux/amd64 ."
   },
   "engines": {
-    "node": "16.x"
+    "node": ">=20"
   },
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@azure/storage-blob": "^12.2.0-preview.1",
-    "archiver": "^5.0.0",
-    "assert": "^2.0.0",
-    "aws-sdk": "^2.738.0",
-    "axios": "^1.6.0",
+    "@fontsource/mulish": "^5.2.8",
     "azure-storage": "^2.10.3",
-    "unzipper": "^0.10.14",
     "bcrypt": "^5.0.0",
-    "body-parser": "^1.19.0",
+    "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "dotenv": "^8.2.0",
     "excel4node": "^1.7.2",
     "express": "^4.17.1",
     "express-fileupload": "^1.2.0",
-    "fs": "0.0.1-security",
+    "express-rate-limit": "^6.11.2",
+    "helmet": "^8.2.0",
     "into-stream": "^6.0.0",
-    "jsonwebtoken": "^8.5.1",
+    "jsonwebtoken": "^9.0.3",
     "jszip": "^3.5.0",
-    "mongodb": "^3.5.9",
-    "mongoose": "^5.9.26",
+    "libphonenumber-js": "^1.13.6",
+    "mongoose": "^8.24.0",
     "nodemailer": "^6.4.11",
-    "puppeteer": "3.0.4",
-    "ssh2-sftp-client": "^5.2.2"
+    "pino": "^10.3.1",
+    "pino-http": "^11.0.0",
+    "puppeteer": "^23.11.1",
+    "qrcode": "^1.5.4",
+    "validator": "^13.7.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
+    "eslint": "^9.39.4",
     "nodemon": "^2.0.4"
-  },
-  "packageManager": "pnpm@10.11.0+sha512.6540583f41cc5f628eb3d9773ecee802f4f9ef9923cc45b69890fb47991d4b092964694ec3a4f738a420c918a333062c8b925d312f42e4f0c263eb603551f977"
+  }
 }

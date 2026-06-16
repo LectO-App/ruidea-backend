@@ -6,4 +6,8 @@ docker-compose.yml
 .DS_Store
 *.zip
 zip-files
-user-files 
+user-files
+.env
+*.env
+scripts
+SECURITY_ASSESSMENT.md
