@@ -1,101 +1,236 @@
 const nodemailer = require('nodemailer');
 const Usuario = require('../models/modeloUsuario');
-const jwt = require('jsonwebtoken');
+const { signToken } = require('./tokens');
 
+// Base URL of the frontend that email links point to. Configurable so reset/verify
+// links work in any environment (e.g. http://localhost:3000 in dev). Defaults to prod.
+const FRONTEND_URL = process.env.FRONTEND_URL || '${FRONTEND_URL}';
+
+const SUPPORT_EMAIL = 'pasaporte@dea.ong';
+const FROM = '"RUIDEA" pasaporte@dea.ong';
+
+// Brand palette — kept in sync with the frontend design tokens (variables.scss) so the
+// emails feel like the same product as the redesigned app.
+const C = {
+	bg: '#faf7f2', // warm off-white
+	surface: '#ffffff',
+	ink: '#2b2b33', // soft black — easier to read than pure black
+	body: '#4a4a52',
+	muted: '#7a7c83',
+	teal: '#41a1ac',
+	tealDark: '#297f89',
+	border: '#e4e0d8',
+	noteBg: '#eef6f7',
+};
+// System font stack — sans-serif, no webfont round-trip; clean and dyslexia-friendly.
+const FONT = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
+
+const transporter = () =>
+	nodemailer.createTransport({
+		host: 'smtp.office365.com',
+		port: 587,
+		secure: false,
+		auth: {
+			user: 'pasaporte@dea.ong',
+			pass: process.env.SMTP_KEY,
+		},
+	});
+
+// HTML-escape free text before interpolating into email HTML (§5.3).
+const escapeHtml = str =>
+	String(str == null ? '' : str)
+		.replace(/&/g, '&amp;')
+		.replace(/</g, '&lt;')
+		.replace(/>/g, '&gt;')
+		.replace(/"/g, '&quot;')
+		.replace(/'/g, '&#039;');
+
+// A bulletproof CTA button: VML fallback for Outlook, a real <a> everywhere else.
+const button = (text, url) => `
+	<!--[if mso]>
+	<v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${url}" style="height:50px;v-text-anchor:middle;width:300px;" arcsize="20%" stroke="f" fillcolor="${C.teal}">
+	<w:anchorlock/>
+	<center style="color:#ffffff;font-family:${FONT};font-size:16px;font-weight:bold;">${text}</center>
+	</v:roundrect>
+	<![endif]-->
+	<!--[if !mso]><!-->
+	<a href="${url}" target="_blank" style="display:inline-block;background:${C.teal};color:#ffffff;font-family:${FONT};font-size:16px;font-weight:700;line-height:50px;text-align:center;text-decoration:none;width:300px;max-width:80%;border-radius:12px;">${text}</a>
+	<!--<![endif]-->`;
+
+// One shared template for every email. `paragraphs` may contain safe author-written HTML
+// (links); `note` is an optional highlighted callout (used for the specialist's message,
+// which is HTML-escaped by the caller).
+const emailShell = ({ heading, paragraphs = [], note = null, buttonText, buttonUrl }) => {
+	const body = paragraphs
+		.map(
+			p =>
+				`<p style="margin:0 0 16px;font-family:${FONT};font-size:17px;line-height:1.6;color:${C.body};">${p}</p>`
+		)
+		.join('');
+
+	const noteHtml = note
+		? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:8px 0 24px;border-collapse:separate;">
+				<tr>
+					<td style="background:${C.noteBg};border-left:4px solid ${C.teal};border-radius:10px;padding:16px 18px;">
+						<p style="margin:0 0 6px;font-family:${FONT};font-size:12px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:${C.tealDark};">${note.label}</p>
+						<p style="margin:0;font-family:${FONT};font-size:16px;line-height:1.6;color:${C.ink};font-style:italic;">${note.text}</p>
+					</td>
+				</tr>
+			</table>`
+		: '';
+
+	return `<!DOCTYPE html>
+<html lang="es" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
+<head>
+	<meta charset="utf-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
+	<meta http-equiv="X-UA-Compatible" content="IE=edge" />
+	<title>RUIDEA</title>
+	<!--[if mso]><style>* { font-family: Arial, sans-serif !important; }</style><![endif]-->
+</head>
+<body style="margin:0;padding:0;background:${C.bg};-webkit-text-size-adjust:100%;">
+	<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${C.bg};">
+		<tr>
+			<td align="center" style="padding:32px 16px;">
+				<table role="presentation" width="560" cellpadding="0" cellspacing="0" style="width:560px;max-width:100%;background:${C.surface};border:1px solid ${C.border};border-radius:18px;overflow:hidden;">
+					<!-- Header / wordmark -->
+					<tr>
+						<td align="center" style="padding:30px 24px 22px;border-bottom:1px solid ${C.border};">
+							<span style="font-family:${FONT};font-size:21px;font-weight:800;letter-spacing:0.05em;color:${C.tealDark};">RUIDEA</span><span style="font-family:${FONT};font-size:13px;font-weight:600;letter-spacing:0.01em;color:${C.muted};"> &middot; Pasaporte DEA</span>
+						</td>
+					</tr>
+					<!-- Body -->
+					<tr>
+						<td style="padding:30px 40px 8px;">
+							<h1 style="margin:0 0 16px;font-family:${FONT};font-size:26px;line-height:1.25;font-weight:800;color:${C.ink};">${heading}</h1>
+							${body}
+							${noteHtml}
+						</td>
+					</tr>
+					<!-- CTA -->
+					<tr>
+						<td align="center" style="padding:8px 40px 36px;">
+							${button(buttonText, buttonUrl)}
+						</td>
+					</tr>
+					<!-- Footer -->
+					<tr>
+						<td style="padding:22px 40px;background:${C.bg};border-top:1px solid ${C.border};">
+							<p style="margin:0;font-family:${FONT};font-size:13px;line-height:1.6;color:${C.muted};text-align:center;">
+								Sistema creado por el equipo de LectO, en colaboración con Disfam.
+							</p>
+						</td>
+					</tr>
+				</table>
+			</td>
+		</tr>
+	</table>
+</body>
+</html>`;
+};
+
+// Plaintext fallback so the message is still readable where HTML is stripped.
+const plain = ({ heading, paragraphs = [], note = null, buttonText, buttonUrl }) =>
+	[
+		heading,
+		'',
+		...paragraphs.map(p => p.replace(/<[^>]+>/g, '')),
+		note ? `\n${note.label}: ${note.text}` : '',
+		'',
+		`${buttonText}: ${buttonUrl}`,
+		'',
+		'Sistema creado por el equipo de LectO, en colaboración con Disfam.',
+	]
+		.filter(line => line !== null && line !== undefined)
+		.join('\n');
+
+const send = async (to, subject, content) => {
+	await transporter().sendMail({
+		from: FROM,
+		to,
+		subject,
+		text: plain(content),
+		html: emailShell(content),
+	});
+};
+
+// Email-verification message sent right after registration.
 const sendEmail = async id => {
 	const user = await Usuario.findById(id);
+	const emailToken = signToken({ id, purpose: 'email-verify' });
 
-	const emailToken = jwt.sign(
-		{
-			id,
-		},
-		process.env.SECURITY_KEY,
-		{ expiresIn: '12h' }
-	);
-
-	let transporter = await nodemailer.createTransport({
-		host: 'smtp.office365.com',
-		port: 587,
-		secure: false,
-		auth: {
-			user: 'pasaporte@dea.ong', // generated ethereal user
-			pass: process.env.SMTP_KEY, // generated ethereal password
-		},
-	});
-	let info = await transporter.sendMail({
-		from: '"RUIDEA" pasaporte@dea.ong', // sender address
-		to: user.correoElectronico,
-		subject: 'Confirmar correo electrónico de RUIDEA',
-		text: 'Hola',
-		html: `<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional //EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:v="urn:schemas-microsoft-com:vml"> <head><!--[if gte mso 9]><xml ><o:OfficeDocumentSettings ><o:AllowPNG/><o:PixelsPerInch >96</o:PixelsPerInch ></o:OfficeDocumentSettings ></xml ><! [endif]--> <meta content="text/html; charset=utf-8" http-equiv="Content-Type"/> <meta content="width=device-width" name="viewport"/> <meta content="IE=edge" http-equiv="X-UA-Compatible"/> <title></title> <link rel="stylesheet" href="https://use.typekit.net/nkh3uvc.css"/> <style type="text/css"> body{margin: 0; padding: 0;}table, td, tr{vertical-align: top; border-collapse: collapse;}*{line-height: inherit;}a[x-apple-data-detectors="true"]{color: inherit !important; text-decoration: none !important;}</style> <style id="media-query" type="text/css"> @media (max-width: 570px){.block-grid, .col{min-width: 320px !important; max-width: 100% !important; display: block !important;}.block-grid{width: 100% !important;}.col{width: 100% !important;}.col > div{margin: 0 auto;}img.fullwidth, img.fullwidthOnMobile{max-width: 100% !important;}.no-stack .col{min-width: 0 !important; display: table-cell !important;}.no-stack.two-up .col{width: 50% !important;}.no-stack .col.num4{width: 33% !important;}.no-stack .col.num8{width: 66% !important;}.no-stack .col.num4{width: 33% !important;}.no-stack .col.num3{width: 25% !important;}.no-stack .col.num6{width: 50% !important;}.no-stack .col.num9{width: 75% !important;}.video-block{max-width: none !important;}.mobile_hide{min-height: 0px; max-height: 0px; max-width: 0px; display: none; overflow: hidden; font-size: 0px;}.desktop_hide{display: block !important; max-height: none !important;}}</style> </head> <body class="clean-body" style=" margin: 0; padding: 0; -webkit-text-size-adjust: 100%; background-color: #f2f2f2; " > <table bgcolor="#f2f2f2" cellpadding="0" cellspacing="0" class="nl-container" role="presentation" style=" table-layout: fixed; vertical-align: top; min-width: 320px; margin: 0 auto; border-spacing: 0; border-collapse: collapse; mso-table-lspace: 0pt; mso-table-rspace: 0pt; background-color: #f2f2f2; width: 100%; " valign="top" width="100%" > <tbody> <tr style="vertical-align: top" valign="top"> <td style="word-break: break-word; vertical-align: top" valign="top"> <div style="background-color: transparent"> <div class="block-grid" style=" margin: 0 auto; min-width: 320px; max-width: 550px; overflow-wrap: break-word; word-wrap: break-word; word-break: break-word; background-color: #ffffff; " > <div style=" border-collapse: collapse; display: table; width: 100%; background-color: #ffffff; " > <div class="col num12" style=" min-width: 320px; max-width: 550px; display: table-cell; vertical-align: top; width: 550px; " > <div style="width: 100% !important"> <div style=" border-top: 0px solid transparent; border-left: 0px solid transparent; border-bottom: 0px solid transparent; border-right: 0px solid transparent; padding-top: 15px; padding-bottom: 5px; padding-right: 10px; padding-left: 10px; " > <div style=" color: #101010; font-family: 'Muli', Tahoma, Verdana, Segoe, sans-serif; line-height: 1.2; padding-top: 10px; padding-right: 10px; padding-bottom: 10px; padding-left: 10px; " > <div style=" line-height: 1.2; font-size: 12px; font-family: 'Muli', Tahoma, Verdana, Segoe, sans-serif; color: #101010; mso-line-height-alt: 14px; " > <p style=" font-size: 14px; line-height: 1.2; text-align: center; font-family: Muli, Tahoma, Verdana, Segoe, sans-serif; word-break: break-word; mso-line-height-alt: 17px; margin: 0; " > <strong ><span style="font-size: 38px" >Gracias por registrarte en RUIDEA!</span ></strong > </p></div></div></div></div></div></div></div></div><div style="background-color: transparent"> <div class="block-grid" style=" margin: 0 auto; min-width: 320px; max-width: 550px; overflow-wrap: break-word; word-wrap: break-word; word-break: break-word; background-color: #ffffff; " > <div style=" border-collapse: collapse; display: table; width: 100%; background-color: #ffffff; " > <div class="col num12" style=" min-width: 320px; max-width: 550px; display: table-cell; vertical-align: top; width: 550px; " > <div style="width: 100% !important"> <div style=" border-top: 0px solid transparent; border-left: 0px solid transparent; border-bottom: 0px solid transparent; border-right: 0px solid transparent; padding-top: 0px; padding-bottom: 30px; padding-right: 0px; padding-left: 0px; " > <div style=" color: #555555; font-family: 'Muli', Tahoma, Verdana, Segoe, sans-serif; line-height: 1.5; padding-top: 15px; padding-right: 35px; padding-bottom: 15px; padding-left: 35px; " > <div style=" line-height: 1.5; font-size: 12px; font-family: 'Muli', Tahoma, Verdana, Segoe, sans-serif; color: #555555; mso-line-height-alt: 18px; " > <p style=" font-size: 17px; line-height: 1.5; text-align: center; font-family: Muli, Tahoma, Verdana, Segoe, sans-serif; word-break: break-word; mso-line-height-alt: 26px; mso-ansi-font-size: 18px; margin: 0; " > <span style=" font-size: 17px; color: #808080; mso-ansi-font-size: 18px; " >Necesitamos que entre al siguiente link para demostrar que este email es suyo y no es un robot.</span > </p></div></div><div style=" color: #555555; font-family: 'Muli', Tahoma, Verdana, Segoe, sans-serif; line-height: 1.5; padding-top: 10px; padding-right: 35px; padding-bottom: 10px; padding-left: 35px; " > <div style=" line-height: 1.5; font-size: 12px; font-family: 'Muli', Tahoma, Verdana, Segoe, sans-serif; color: #555555; mso-line-height-alt: 18px; " > <p style=" font-size: 17px; line-height: 1.5; text-align: center; font-family: Muli, Tahoma, Verdana, Segoe, sans-serif; word-break: break-word; mso-line-height-alt: 26px; mso-ansi-font-size: 18px; margin: 0; " > <span style=" font-size: 17px; color: #808080; mso-ansi-font-size: 18px; " >Una vez que verifique su cuenta, nuestros especialistas revisarán su solicitud y le contactaremos para informarle el estado de su solicitud. </span > </p></div></div><div align="center" class="button-container" style=" padding-top: 15px; padding-right: 10px; padding-bottom: 10px; padding-left: 10px; " ><!--[if mso]><table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-spacing: 0; border-collapse: collapse; mso-table-lspace:0pt; mso-table-rspace:0pt;"><tr><td style="padding-top: 15px; padding-right: 10px; padding-bottom: 10px; padding-left: 10px" align="center"><v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="https://pasaporte.dea.ong" style="height:39pt; width:278.25pt; v-text-anchor:middle;" arcsize="12%" stroke="false" fillcolor="#41a1ac"><w:anchorlock/><v:textbox inset="0,0,0,0"><center style="color:#ffffff; font-family:Tahoma, Verdana, sans-serif; font-size:16px"><! [endif]--><a href="https://pasaporte.dea.ong/verificarEmail/${emailToken}" style=" -webkit-text-size-adjust: none; text-decoration: none; display: inline-block; color: #ffffff; background-color: #41a1ac; border-radius: 6px; -webkit-border-radius: 6px; -moz-border-radius: 6px; width: auto; width: auto; border-top: 1px solid #41a1ac; border-right: 1px solid #41a1ac; border-bottom: 1px solid #41a1ac; border-left: 1px solid #41a1ac; padding-top: 10px; padding-bottom: 10px; font-family: 'Muli', Tahoma, Verdana, Segoe, sans-serif; text-align: center; mso-border-alt: none; word-break: keep-all; " target="_blank" ><span style=" padding-left: 30px; padding-right: 30px; font-size: 16px; display: inline-block; " ><span style=" font-size: 16px; line-height: 2; font-family: Muli, Tahoma, Verdana, Segoe, sans-serif; word-break: break-word; mso-line-height-alt: 32px; " ><strong >VERIFICAR CORREO ELECTRÓNICO</strong ></span ></span ></a > </div></div></div></div></div></div></div><div style="background-color: transparent"> <div class="block-grid" style=" margin: 0 auto; min-width: 320px; max-width: 550px; overflow-wrap: break-word; word-wrap: break-word; word-break: break-word; background-color: #ffffff; " > <div style=" border-collapse: collapse; display: table; width: 100%; background-color: #ffffff; " > <div class="col num12" style=" min-width: 320px; max-width: 550px; display: table-cell; vertical-align: top; width: 550px; " > <div style="width: 100% !important"> <div style=" border-top: 0px solid transparent; border-left: 0px solid transparent; border-bottom: 0px solid transparent; border-right: 0px solid transparent; padding-top: 5px; padding-bottom: 5px; padding-right: 0px; padding-left: 0px; " > <div style=" color: #555555; font-family: 'Muli', Tahoma, Verdana, Segoe, sans-serif; line-height: 1.2; padding-top: 10px; padding-right: 10px; padding-bottom: 10px; padding-left: 10px; " > <div style=" line-height: 1.2; font-size: 12px; font-family: 'Muli', Tahoma, Verdana, Segoe, sans-serif; color: #555555; mso-line-height-alt: 14px; " > <p style=" font-size: 14px; line-height: 1.2; text-align: center; font-family: Muli, Tahoma, Verdana, Segoe, sans-serif; word-break: break-word; mso-line-height-alt: 17px; margin: 0; " > <em ><span style=" font-size: 13px; mso-ansi-font-size: 14px; " >Sistema desarrollado por el equipo de LectO, en colaboración con Disfam.</span ></em > </p></div></div></div></div></div></div></div></div></td></tr></tbody> </table> </body></html>`,
+	await send(user.correoElectronico, 'Confirma tu correo de RUIDEA', {
+		heading: 'Confirma tu correo',
+		paragraphs: [
+			'¡Hola! Gracias por registrarte en RUIDEA.',
+			'Solo falta un paso: confirma que este correo es tuyo. En cuanto lo hagas, un especialista revisará tu solicitud y te avisaremos por aquí.',
+		],
+		buttonText: 'Confirmar mi correo',
+		buttonUrl: `${FRONTEND_URL}/verificarEmail/${emailToken}`,
 	});
 };
 
-const sendEmailAdmin = async (email, estado) => {
-	let transporter = await nodemailer.createTransport({
-		host: 'smtp.office365.com',
-		port: 587,
-		secure: false,
-		auth: {
-			user: 'pasaporte@dea.ong', // generated ethereal user
-			pass: process.env.SMTP_KEY, // generated ethereal password
-		},
-	});
+// Status-change messages sent by the admin review flow.
+const sendEmailAdmin = async (email, estado, mensajeMedico = '') => {
+	const dashboardUrl = `${FRONTEND_URL}/dashboard`;
+	const note = mensajeMedico ? { label: 'Mensaje del especialista', text: escapeHtml(mensajeMedico) } : null;
 
+	let content;
 	switch (estado) {
 		case 'aceptado':
-			await transporter.sendMail({
-				from: '"RUIDEA" pasaporte@dea.ong', // sender address
-				to: email,
-				subject: 'Su solicitud de RUIDEA.',
-				html: `<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional //EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:v="urn:schemas-microsoft-com:vml"> <head><!--[if gte mso 9]><xml ><o:OfficeDocumentSettings ><o:AllowPNG/><o:PixelsPerInch >96</o:PixelsPerInch ></o:OfficeDocumentSettings ></xml ><! [endif]--> <meta content="text/html; charset=utf-8" http-equiv="Content-Type"/> <meta content="width=device-width" name="viewport"/> <meta content="IE=edge" http-equiv="X-UA-Compatible"/> <title></title> <link rel="stylesheet" href="https://use.typekit.net/nkh3uvc.css"/> <style type="text/css"> body{margin: 0; padding: 0;}table, td, tr{vertical-align: top; border-collapse: collapse;}*{line-height: inherit;}a[x-apple-data-detectors="true"]{color: inherit !important; text-decoration: none !important;}</style> <style id="media-query" type="text/css"> @media (max-width: 570px){.block-grid, .col{min-width: 320px !important; max-width: 100% !important; display: block !important;}.block-grid{width: 100% !important;}.col{width: 100% !important;}.col > div{margin: 0 auto;}img.fullwidth, img.fullwidthOnMobile{max-width: 100% !important;}.no-stack .col{min-width: 0 !important; display: table-cell !important;}.no-stack.two-up .col{width: 50% !important;}.no-stack .col.num4{width: 33% !important;}.no-stack .col.num8{width: 66% !important;}.no-stack .col.num4{width: 33% !important;}.no-stack .col.num3{width: 25% !important;}.no-stack .col.num6{width: 50% !important;}.no-stack .col.num9{width: 75% !important;}.video-block{max-width: none !important;}.mobile_hide{min-height: 0px; max-height: 0px; max-width: 0px; display: none; overflow: hidden; font-size: 0px;}.desktop_hide{display: block !important; max-height: none !important;}}</style> </head> <body class="clean-body" style=" margin: 0; padding: 0; -webkit-text-size-adjust: 100%; background-color: #f2f2f2; " > <table bgcolor="#f2f2f2" cellpadding="0" cellspacing="0" class="nl-container" role="presentation" style=" table-layout: fixed; vertical-align: top; min-width: 320px; margin: 0 auto; border-spacing: 0; border-collapse: collapse; mso-table-lspace: 0pt; mso-table-rspace: 0pt; background-color: #f2f2f2; width: 100%; " valign="top" width="100%" > <tbody> <tr style="vertical-align: top" valign="top"> <td style="word-break: break-word; vertical-align: top" valign="top"> <div style="background-color: transparent"> <div class="block-grid" style=" margin: 0 auto; min-width: 320px; max-width: 550px; overflow-wrap: break-word; word-wrap: break-word; word-break: break-word; background-color: #ffffff; " > <div style=" border-collapse: collapse; display: table; width: 100%; background-color: #ffffff; " > <div class="col num12" style=" min-width: 320px; max-width: 550px; display: table-cell; vertical-align: top; width: 550px; " > <div style="width: 100% !important"> <div style=" border-top: 0px solid transparent; border-left: 0px solid transparent; border-bottom: 0px solid transparent; border-right: 0px solid transparent; padding-top: 15px; padding-bottom: 5px; padding-right: 10px; padding-left: 10px; " > <div style=" color: #101010; font-family: 'Muli', Tahoma, Verdana, Segoe, sans-serif; line-height: 1.2; padding-top: 10px; padding-right: 10px; padding-bottom: 10px; padding-left: 10px; " > <div style=" line-height: 1.2; font-size: 12px; font-family: 'Muli', Tahoma, Verdana, Segoe, sans-serif; color: #101010; mso-line-height-alt: 14px; " > <p style=" font-size: 14px; line-height: 1.2; text-align: center; font-family: Muli, Tahoma, Verdana, Segoe, sans-serif; word-break: break-word; mso-line-height-alt: 17px; margin: 0; " > <strong ><span style="font-size: 38px" >Gracias por registrarte en RUIDEA!</span ></strong > </p></div></div></div></div></div></div></div></div><div style="background-color: transparent"> <div class="block-grid" style=" margin: 0 auto; min-width: 320px; max-width: 550px; overflow-wrap: break-word; word-wrap: break-word; word-break: break-word; background-color: #ffffff; " > <div style=" border-collapse: collapse; display: table; width: 100%; background-color: #ffffff; " > <div class="col num12" style=" min-width: 320px; max-width: 550px; display: table-cell; vertical-align: top; width: 550px; " > <div style="width: 100% !important"> <div style=" border-top: 0px solid transparent; border-left: 0px solid transparent; border-bottom: 0px solid transparent; border-right: 0px solid transparent; padding-top: 0px; padding-bottom: 30px; padding-right: 0px; padding-left: 0px; " > <div style=" color: #555555; font-family: 'Muli', Tahoma, Verdana, Segoe, sans-serif; line-height: 1.5; padding-top: 15px; padding-right: 35px; padding-bottom: 15px; padding-left: 35px; " > <div style=" line-height: 1.5; font-size: 12px; font-family: 'Muli', Tahoma, Verdana, Segoe, sans-serif; color: #555555; mso-line-height-alt: 18px; " > <p style=" font-size: 17px; line-height: 1.5; text-align: center; font-family: Muli, Tahoma, Verdana, Segoe, sans-serif; word-break: break-word; mso-line-height-alt: 26px; mso-ansi-font-size: 18px; margin: 0; " > <span style=" font-size: 17px; color: #808080; mso-ansi-font-size: 18px; " >Luego de que lo revisen, los especialistas determinaron que su solicitud era correcta, por lo que fue aceptada!</span > </p></div></div><div style=" color: #555555; font-family: 'Muli', Tahoma, Verdana, Segoe, sans-serif; line-height: 1.5; padding-top: 10px; padding-right: 35px; padding-bottom: 10px; padding-left: 35px; " > <div style=" line-height: 1.5; font-size: 12px; font-family: 'Muli', Tahoma, Verdana, Segoe, sans-serif; color: #555555; mso-line-height-alt: 18px; " > <p style=" font-size: 17px; line-height: 1.5; text-align: center; font-family: Muli, Tahoma, Verdana, Segoe, sans-serif; word-break: break-word; mso-line-height-alt: 26px; mso-ansi-font-size: 18px; margin: 0; " > <span style=" font-size: 17px; color: #808080; mso-ansi-font-size: 18px; " >¿Qué es lo siguiente? <br/> Entre a RUIDEA para descargar el pasaporte, ya sea en formato PDF o JPG </span > </p></div></div><div align="center" class="button-container" style=" padding-top: 15px; padding-right: 10px; padding-bottom: 10px; padding-left: 10px; " ><!--[if mso]><table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-spacing: 0; border-collapse: collapse; mso-table-lspace:0pt; mso-table-rspace:0pt;"><tr><td style="padding-top: 15px; padding-right: 10px; padding-bottom: 10px; padding-left: 10px" align="center"><v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="https://pasaporte.dea.ong" style="height:39pt; width:278.25pt; v-text-anchor:middle;" arcsize="12%" stroke="false" fillcolor="#41a1ac"><w:anchorlock/><v:textbox inset="0,0,0,0"><center style="color:#ffffff; font-family:Tahoma, Verdana, sans-serif; font-size:16px"><! [endif]--><a href="https://pasaporte.dea.ong/dashboard" style=" -webkit-text-size-adjust: none; text-decoration: none; display: inline-block; color: #ffffff; background-color: #41a1ac; border-radius: 6px; -webkit-border-radius: 6px; -moz-border-radius: 6px; width: auto; width: auto; border-top: 1px solid #41a1ac; border-right: 1px solid #41a1ac; border-bottom: 1px solid #41a1ac; border-left: 1px solid #41a1ac; padding-top: 10px; padding-bottom: 10px; font-family: 'Muli', Tahoma, Verdana, Segoe, sans-serif; text-align: center; mso-border-alt: none; word-break: keep-all; " target="_blank" ><span style=" padding-left: 30px; padding-right: 30px; font-size: 16px; display: inline-block; " ><span style=" font-size: 16px; line-height: 2; font-family: Muli, Tahoma, Verdana, Segoe, sans-serif; word-break: break-word; mso-line-height-alt: 32px; " ><strong >VER SOLICITUD</strong ></span ></span ></a > </div></div></div></div></div></div></div><div style="background-color: transparent"> <div class="block-grid" style=" margin: 0 auto; min-width: 320px; max-width: 550px; overflow-wrap: break-word; word-wrap: break-word; word-break: break-word; background-color: #ffffff; " > <div style=" border-collapse: collapse; display: table; width: 100%; background-color: #ffffff; " > <div class="col num12" style=" min-width: 320px; max-width: 550px; display: table-cell; vertical-align: top; width: 550px; " > <div style="width: 100% !important"> <div style=" border-top: 0px solid transparent; border-left: 0px solid transparent; border-bottom: 0px solid transparent; border-right: 0px solid transparent; padding-top: 5px; padding-bottom: 5px; padding-right: 0px; padding-left: 0px; " > <div style=" color: #555555; font-family: 'Muli', Tahoma, Verdana, Segoe, sans-serif; line-height: 1.2; padding-top: 10px; padding-right: 10px; padding-bottom: 10px; padding-left: 10px; " > <div style=" line-height: 1.2; font-size: 12px; font-family: 'Muli', Tahoma, Verdana, Segoe, sans-serif; color: #555555; mso-line-height-alt: 14px; " > <p style=" font-size: 14px; line-height: 1.2; text-align: center; font-family: Muli, Tahoma, Verdana, Segoe, sans-serif; word-break: break-word; mso-line-height-alt: 17px; margin: 0; " > <em ><span style=" font-size: 13px; mso-ansi-font-size: 14px; " >Sistema desarrollado por el equipo de LectO, en colaboración con Disfam.</span ></em > </p></div></div></div></div></div></div></div></div></td></tr></tbody> </table> </body></html>`,
-			});
+			content = {
+				heading: '¡Tu Pasaporte DEA está listo!',
+				paragraphs: [
+					'Un especialista revisó tu solicitud y la aprobó.',
+					'Entra a tu panel para descargar tu pasaporte en PDF o JPG, o copiar el enlace para compartirlo cuando lo necesites.',
+				],
+				buttonText: 'Ver mi pasaporte',
+				buttonUrl: dashboardUrl,
+			};
 			break;
 		case 'revision':
-			const user = await Usuario.find({ correoElectronico: email });
-			await transporter.sendMail({
-				from: '"RUIDEA" pasaporte@dea.ong', // sender address
-				to: email,
-				subject: 'Su solicitud de RUIDEA.',
-				html: `<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional //EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:v="urn:schemas-microsoft-com:vml"> <head><!--[if gte mso 9]><xml ><o:OfficeDocumentSettings ><o:AllowPNG/><o:PixelsPerInch >96</o:PixelsPerInch ></o:OfficeDocumentSettings ></xml ><! [endif]--> <meta content="text/html; charset=utf-8" http-equiv="Content-Type"/> <meta content="width=device-width" name="viewport"/> <meta content="IE=edge" http-equiv="X-UA-Compatible"/> <title></title> <link rel="stylesheet" href="https://use.typekit.net/nkh3uvc.css"/> <style type="text/css"> body{margin: 0; padding: 0;}table, td, tr{vertical-align: top; border-collapse: collapse;}*{line-height: inherit;}a[x-apple-data-detectors="true"]{color: inherit !important; text-decoration: none !important;}</style> <style id="media-query" type="text/css"> @media (max-width: 570px){.block-grid, .col{min-width: 320px !important; max-width: 100% !important; display: block !important;}.block-grid{width: 100% !important;}.col{width: 100% !important;}.col > div{margin: 0 auto;}img.fullwidth, img.fullwidthOnMobile{max-width: 100% !important;}.no-stack .col{min-width: 0 !important; display: table-cell !important;}.no-stack.two-up .col{width: 50% !important;}.no-stack .col.num4{width: 33% !important;}.no-stack .col.num8{width: 66% !important;}.no-stack .col.num4{width: 33% !important;}.no-stack .col.num3{width: 25% !important;}.no-stack .col.num6{width: 50% !important;}.no-stack .col.num9{width: 75% !important;}.video-block{max-width: none !important;}.mobile_hide{min-height: 0px; max-height: 0px; max-width: 0px; display: none; overflow: hidden; font-size: 0px;}.desktop_hide{display: block !important; max-height: none !important;}}</style> </head> <body class="clean-body" style=" margin: 0; padding: 0; -webkit-text-size-adjust: 100%; background-color: #f2f2f2; " > <table bgcolor="#f2f2f2" cellpadding="0" cellspacing="0" class="nl-container" role="presentation" style=" table-layout: fixed; vertical-align: top; min-width: 320px; margin: 0 auto; border-spacing: 0; border-collapse: collapse; mso-table-lspace: 0pt; mso-table-rspace: 0pt; background-color: #f2f2f2; width: 100%; " valign="top" width="100%" > <tbody> <tr style="vertical-align: top" valign="top"> <td style="word-break: break-word; vertical-align: top" valign="top"> <div style="background-color: transparent"> <div class="block-grid" style=" margin: 0 auto; min-width: 320px; max-width: 550px; overflow-wrap: break-word; word-wrap: break-word; word-break: break-word; background-color: #ffffff; " > <div style=" border-collapse: collapse; display: table; width: 100%; background-color: #ffffff; " > <div class="col num12" style=" min-width: 320px; max-width: 550px; display: table-cell; vertical-align: top; width: 550px; " > <div style="width: 100% !important"> <div style=" border-top: 0px solid transparent; border-left: 0px solid transparent; border-bottom: 0px solid transparent; border-right: 0px solid transparent; padding-top: 15px; padding-bottom: 5px; padding-right: 10px; padding-left: 10px; " > <div style=" color: #101010; font-family: 'Muli', Tahoma, Verdana, Segoe, sans-serif; line-height: 1.2; padding-top: 10px; padding-right: 10px; padding-bottom: 10px; padding-left: 10px; " > <div style=" line-height: 1.2; font-size: 12px; font-family: 'Muli', Tahoma, Verdana, Segoe, sans-serif; color: #101010; mso-line-height-alt: 14px; " > <p style=" font-size: 14px; line-height: 1.2; text-align: center; font-family: Muli, Tahoma, Verdana, Segoe, sans-serif; word-break: break-word; mso-line-height-alt: 17px; margin: 0; " > <strong ><span style="font-size: 38px" >Gracias por registrarte en RUIDEA!</span ></strong > </p></div></div></div></div></div></div></div></div><div style="background-color: transparent"> <div class="block-grid" style=" margin: 0 auto; min-width: 320px; max-width: 550px; overflow-wrap: break-word; word-wrap: break-word; word-break: break-word; background-color: #ffffff; " > <div style=" border-collapse: collapse; display: table; width: 100%; background-color: #ffffff; " > <div class="col num12" style=" min-width: 320px; max-width: 550px; display: table-cell; vertical-align: top; width: 550px; " > <div style="width: 100% !important"> <div style=" border-top: 0px solid transparent; border-left: 0px solid transparent; border-bottom: 0px solid transparent; border-right: 0px solid transparent; padding-top: 0px; padding-bottom: 30px; padding-right: 0px; padding-left: 0px; " > <div style=" color: #555555; font-family: 'Muli', Tahoma, Verdana, Segoe, sans-serif; line-height: 1.5; padding-top: 15px; padding-right: 35px; padding-bottom: 15px; padding-left: 35px; " > <div style=" line-height: 1.5; font-size: 12px; font-family: 'Muli', Tahoma, Verdana, Segoe, sans-serif; color: #555555; mso-line-height-alt: 18px; " > <p style=" font-size: 17px; line-height: 1.5; text-align: center; font-family: Muli, Tahoma, Verdana, Segoe, sans-serif; word-break: break-word; mso-line-height-alt: 26px; mso-ansi-font-size: 18px; margin: 0; " > <span style=" font-size: 17px; color: #808080; mso-ansi-font-size: 18px; " >Luego de que lo revisen, los especialistas determinaron que su solicitud estaba incompleta o incorrecta.</span > </p></div></div><div style=" color: #555555; font-family: 'Muli', Tahoma, Verdana, Segoe, sans-serif; line-height: 1.5; padding-top: 10px; padding-right: 35px; padding-bottom: 10px; padding-left: 35px; " > <div style=" line-height: 1.5; font-size: 12px; font-family: 'Muli', Tahoma, Verdana, Segoe, sans-serif; color: #555555; mso-line-height-alt: 18px; " > <p style=" font-size: 17px; line-height: 1.5; text-align: center; font-family: Muli, Tahoma, Verdana, Segoe, sans-serif; word-break: break-word; mso-line-height-alt: 26px; mso-ansi-font-size: 18px; margin: 0; " > <span style=" font-size: 17px; color: #808080; mso-ansi-font-size: 18px; " >¿Qué es lo siguiente? <br/> Entre a RUIDEA para ver el mensaje que le dejó el especialista y volver a enviar el formulario.</span > </p></div></div><div align="center" class="button-container" style=" padding-top: 15px; padding-right: 10px; padding-bottom: 10px; padding-left: 10px; " ><!--[if mso]><table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-spacing: 0; border-collapse: collapse; mso-table-lspace:0pt; mso-table-rspace:0pt;"><tr><td style="padding-top: 15px; padding-right: 10px; padding-bottom: 10px; padding-left: 10px" align="center"><v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="https://pasaporte.dea.ong" style="height:39pt; width:278.25pt; v-text-anchor:middle;" arcsize="12%" stroke="false" fillcolor="#41a1ac"><w:anchorlock/><v:textbox inset="0,0,0,0"><center style="color:#ffffff; font-family:Tahoma, Verdana, sans-serif; font-size:16px"><! [endif]--><a href="https://pasaporte.dea.ong/dashboard" style=" -webkit-text-size-adjust: none; text-decoration: none; display: inline-block; color: #ffffff; background-color: #41a1ac; border-radius: 6px; -webkit-border-radius: 6px; -moz-border-radius: 6px; width: auto; width: auto; border-top: 1px solid #41a1ac; border-right: 1px solid #41a1ac; border-bottom: 1px solid #41a1ac; border-left: 1px solid #41a1ac; padding-top: 10px; padding-bottom: 10px; font-family: 'Muli', Tahoma, Verdana, Segoe, sans-serif; text-align: center; mso-border-alt: none; word-break: keep-all; " target="_blank" ><span style=" padding-left: 30px; padding-right: 30px; font-size: 16px; display: inline-block; " ><span style=" font-size: 16px; line-height: 2; font-family: Muli, Tahoma, Verdana, Segoe, sans-serif; word-break: break-word; mso-line-height-alt: 32px; " ><strong >VER SOLICITUD</strong ></span ></span ></a > </div></div></div></div></div></div></div><div style="background-color: transparent"> <div class="block-grid" style=" margin: 0 auto; min-width: 320px; max-width: 550px; overflow-wrap: break-word; word-wrap: break-word; word-break: break-word; background-color: #ffffff; " > <div style=" border-collapse: collapse; display: table; width: 100%; background-color: #ffffff; " > <div class="col num12" style=" min-width: 320px; max-width: 550px; display: table-cell; vertical-align: top; width: 550px; " > <div style="width: 100% !important"> <div style=" border-top: 0px solid transparent; border-left: 0px solid transparent; border-bottom: 0px solid transparent; border-right: 0px solid transparent; padding-top: 5px; padding-bottom: 5px; padding-right: 0px; padding-left: 0px; " > <div style=" color: #555555; font-family: 'Muli', Tahoma, Verdana, Segoe, sans-serif; line-height: 1.2; padding-top: 10px; padding-right: 10px; padding-bottom: 10px; padding-left: 10px; " > <div style=" line-height: 1.2; font-size: 12px; font-family: 'Muli', Tahoma, Verdana, Segoe, sans-serif; color: #555555; mso-line-height-alt: 14px; " > <p style=" font-size: 14px; line-height: 1.2; text-align: center; font-family: Muli, Tahoma, Verdana, Segoe, sans-serif; word-break: break-word; mso-line-height-alt: 17px; margin: 0; " > <em ><span style=" font-size: 13px; mso-ansi-font-size: 14px; " >Sistema desarrollado por el equipo de LectO, en colaboración con Disfam.</span ></em > </p></div></div></div></div></div></div></div></div></td></tr></tbody> </table> </body></html>`,
-			});
+			content = {
+				heading: 'Necesitamos que revises un detalle',
+				paragraphs: [
+					'Un especialista revisó tu solicitud y dejó un mensaje para ti. Con un pequeño cambio quedará lista.',
+					'Entra a tu panel para corregir lo necesario y volver a enviarla.',
+				],
+				note,
+				buttonText: 'Revisar mi solicitud',
+				buttonUrl: dashboardUrl,
+			};
 			break;
 		case 'rechazado':
-			const userR = await Usuario.find({ correoElectronico: email });
-			await transporter.sendMail({
-				from: '"RUIDEA" pasaporte@dea.ong', // sender address
-				to: email,
-				subject: 'Su solicitud de RUIDEA.',
-				html: `<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional //EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:v="urn:schemas-microsoft-com:vml"> <head><!--[if gte mso 9]><xml ><o:OfficeDocumentSettings ><o:AllowPNG/><o:PixelsPerInch >96</o:PixelsPerInch ></o:OfficeDocumentSettings ></xml ><! [endif]--> <meta content="text/html; charset=utf-8" http-equiv="Content-Type"/> <meta content="width=device-width" name="viewport"/> <meta content="IE=edge" http-equiv="X-UA-Compatible"/> <title></title> <link rel="stylesheet" href="https://use.typekit.net/nkh3uvc.css"/> <style type="text/css"> body{margin: 0; padding: 0;}table, td, tr{vertical-align: top; border-collapse: collapse;}*{line-height: inherit;}a[x-apple-data-detectors="true"]{color: inherit !important; text-decoration: none !important;}</style> <style id="media-query" type="text/css"> @media (max-width: 570px){.block-grid, .col{min-width: 320px !important; max-width: 100% !important; display: block !important;}.block-grid{width: 100% !important;}.col{width: 100% !important;}.col > div{margin: 0 auto;}img.fullwidth, img.fullwidthOnMobile{max-width: 100% !important;}.no-stack .col{min-width: 0 !important; display: table-cell !important;}.no-stack.two-up .col{width: 50% !important;}.no-stack .col.num4{width: 33% !important;}.no-stack .col.num8{width: 66% !important;}.no-stack .col.num4{width: 33% !important;}.no-stack .col.num3{width: 25% !important;}.no-stack .col.num6{width: 50% !important;}.no-stack .col.num9{width: 75% !important;}.video-block{max-width: none !important;}.mobile_hide{min-height: 0px; max-height: 0px; max-width: 0px; display: none; overflow: hidden; font-size: 0px;}.desktop_hide{display: block !important; max-height: none !important;}}</style> </head> <body class="clean-body" style=" margin: 0; padding: 0; -webkit-text-size-adjust: 100%; background-color: #f2f2f2; " > <table bgcolor="#f2f2f2" cellpadding="0" cellspacing="0" class="nl-container" role="presentation" style=" table-layout: fixed; vertical-align: top; min-width: 320px; margin: 0 auto; border-spacing: 0; border-collapse: collapse; mso-table-lspace: 0pt; mso-table-rspace: 0pt; background-color: #f2f2f2; width: 100%; " valign="top" width="100%" > <tbody> <tr style="vertical-align: top" valign="top"> <td style="word-break: break-word; vertical-align: top" valign="top"> <div style="background-color: transparent"> <div class="block-grid" style=" margin: 0 auto; min-width: 320px; max-width: 550px; overflow-wrap: break-word; word-wrap: break-word; word-break: break-word; background-color: #ffffff; " > <div style=" border-collapse: collapse; display: table; width: 100%; background-color: #ffffff; " > <div class="col num12" style=" min-width: 320px; max-width: 550px; display: table-cell; vertical-align: top; width: 550px; " > <div style="width: 100% !important"> <div style=" border-top: 0px solid transparent; border-left: 0px solid transparent; border-bottom: 0px solid transparent; border-right: 0px solid transparent; padding-top: 15px; padding-bottom: 5px; padding-right: 10px; padding-left: 10px; " > <div style=" color: #101010; font-family: 'Muli', Tahoma, Verdana, Segoe, sans-serif; line-height: 1.2; padding-top: 10px; padding-right: 10px; padding-bottom: 10px; padding-left: 10px; " > <div style=" line-height: 1.2; font-size: 12px; font-family: 'Muli', Tahoma, Verdana, Segoe, sans-serif; color: #101010; mso-line-height-alt: 14px; " > <p style=" font-size: 14px; line-height: 1.2; text-align: center; font-family: Muli, Tahoma, Verdana, Segoe, sans-serif; word-break: break-word; mso-line-height-alt: 17px; margin: 0; " > <strong ><span style="font-size: 38px" >Gracias por registrarte en RUIDEA!</span ></strong > </p></div></div></div></div></div></div></div></div><div style="background-color: transparent"> <div class="block-grid" style=" margin: 0 auto; min-width: 320px; max-width: 550px; overflow-wrap: break-word; word-wrap: break-word; word-break: break-word; background-color: #ffffff; " > <div style=" border-collapse: collapse; display: table; width: 100%; background-color: #ffffff; " > <div class="col num12" style=" min-width: 320px; max-width: 550px; display: table-cell; vertical-align: top; width: 550px; " > <div style="width: 100% !important"> <div style=" border-top: 0px solid transparent; border-left: 0px solid transparent; border-bottom: 0px solid transparent; border-right: 0px solid transparent; padding-top: 0px; padding-bottom: 30px; padding-right: 0px; padding-left: 0px; " > <div style=" color: #555555; font-family: 'Muli', Tahoma, Verdana, Segoe, sans-serif; line-height: 1.5; padding-top: 15px; padding-right: 35px; padding-bottom: 15px; padding-left: 35px; " > <div style=" line-height: 1.5; font-size: 12px; font-family: 'Muli', Tahoma, Verdana, Segoe, sans-serif; color: #555555; mso-line-height-alt: 18px; " > <p style=" font-size: 17px; line-height: 1.5; text-align: center; font-family: Muli, Tahoma, Verdana, Segoe, sans-serif; word-break: break-word; mso-line-height-alt: 26px; mso-ansi-font-size: 18px; margin: 0; " > <span style=" font-size: 17px; color: #808080; mso-ansi-font-size: 18px; " >Lo sentimos, pero luego de que lo revisen, los especialistas determinaron que su solicitud era incorrecta y fue rechazada.</span > </p></div></div><div style=" color: #555555; font-family: 'Muli', Tahoma, Verdana, Segoe, sans-serif; line-height: 1.5; padding-top: 10px; padding-right: 35px; padding-bottom: 10px; padding-left: 35px; " > <div style=" line-height: 1.5; font-size: 12px; font-family: 'Muli', Tahoma, Verdana, Segoe, sans-serif; color: #555555; mso-line-height-alt: 18px; " > <p style=" font-size: 17px; line-height: 1.5; text-align: center; font-family: Muli, Tahoma, Verdana, Segoe, sans-serif; word-break: break-word; mso-line-height-alt: 26px; mso-ansi-font-size: 18px; margin: 0; " > <span style=" font-size: 17px; color: #808080; mso-ansi-font-size: 18px; " >Mensaje del especialista: <br/> <i>${userR.mensajeMedico}</i></span > </p></div></div><div align="center" class="button-container" style=" padding-top: 15px; padding-right: 10px; padding-bottom: 10px; padding-left: 10px; " ><!--[if mso]><table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-spacing: 0; border-collapse: collapse; mso-table-lspace:0pt; mso-table-rspace:0pt;"><tr><td style="padding-top: 15px; padding-right: 10px; padding-bottom: 10px; padding-left: 10px" align="center"><v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="https://pasaporte.dea.ong" style="height:39pt; width:278.25pt; v-text-anchor:middle;" arcsize="12%" stroke="false" fillcolor="#41a1ac"><w:anchorlock/><v:textbox inset="0,0,0,0"><center style="color:#ffffff; font-family:Tahoma, Verdana, sans-serif; font-size:16px"><! [endif]--><a href="https://pasaporte.dea.ong/dashboard" style=" -webkit-text-size-adjust: none; text-decoration: none; display: inline-block; color: #ffffff; background-color: #41a1ac; border-radius: 6px; -webkit-border-radius: 6px; -moz-border-radius: 6px; width: auto; width: auto; border-top: 1px solid #41a1ac; border-right: 1px solid #41a1ac; border-bottom: 1px solid #41a1ac; border-left: 1px solid #41a1ac; padding-top: 10px; padding-bottom: 10px; font-family: 'Muli', Tahoma, Verdana, Segoe, sans-serif; text-align: center; mso-border-alt: none; word-break: keep-all; " target="_blank" ><span style=" padding-left: 30px; padding-right: 30px; font-size: 16px; display: inline-block; " ><span style=" font-size: 16px; line-height: 2; font-family: Muli, Tahoma, Verdana, Segoe, sans-serif; word-break: break-word; mso-line-height-alt: 32px; " ><strong >VER SOLICITUD</strong ></span ></span ></a > </div></div></div></div></div></div></div><div style="background-color: transparent"> <div class="block-grid" style=" margin: 0 auto; min-width: 320px; max-width: 550px; overflow-wrap: break-word; word-wrap: break-word; word-break: break-word; background-color: #ffffff; " > <div style=" border-collapse: collapse; display: table; width: 100%; background-color: #ffffff; " > <div class="col num12" style=" min-width: 320px; max-width: 550px; display: table-cell; vertical-align: top; width: 550px; " > <div style="width: 100% !important"> <div style=" border-top: 0px solid transparent; border-left: 0px solid transparent; border-bottom: 0px solid transparent; border-right: 0px solid transparent; padding-top: 5px; padding-bottom: 5px; padding-right: 0px; padding-left: 0px; " > <div style=" color: #555555; font-family: 'Muli', Tahoma, Verdana, Segoe, sans-serif; line-height: 1.2; padding-top: 10px; padding-right: 10px; padding-bottom: 10px; padding-left: 10px; " > <div style=" line-height: 1.2; font-size: 12px; font-family: 'Muli', Tahoma, Verdana, Segoe, sans-serif; color: #555555; mso-line-height-alt: 14px; " > <p style=" font-size: 14px; line-height: 1.2; text-align: center; font-family: Muli, Tahoma, Verdana, Segoe, sans-serif; word-break: break-word; mso-line-height-alt: 17px; margin: 0; " > <em ><span style=" font-size: 13px; mso-ansi-font-size: 14px; " >Sistema desarrollado por el equipo de LectO, en colaboración con Disfam.</span ></em > </p></div></div></div></div></div></div></div></div></td></tr></tbody> </table> </body></html>`,
-			});
+			content = {
+				heading: 'Novedades sobre tu solicitud',
+				paragraphs: [
+					'Lo sentimos. Un especialista revisó tu solicitud y no pudo aprobarla esta vez.',
+					`Si crees que se trata de un error, escríbenos a <a href="mailto:${SUPPORT_EMAIL}" style="color:${C.tealDark};font-weight:600;">${SUPPORT_EMAIL}</a> y lo vemos contigo.`,
+				],
+				note,
+				buttonText: 'Ver mi solicitud',
+				buttonUrl: dashboardUrl,
+			};
 			break;
+		default:
+			return;
 	}
+
+	await send(email, 'Novedades sobre tu solicitud de RUIDEA', content);
 };
 
+// Password-reset message.
 const sendPasswordResetEmail = async (email, id) => {
-	const token = jwt.sign(
-		{
-			id,
-		},
-		process.env.SECURITY_KEY,
-		{ expiresIn: '12h' }
-	);
+	const token = signToken({ id, purpose: 'password-reset' });
 
-	let transporter = await nodemailer.createTransport({
-		host: 'smtp.office365.com',
-		port: 587,
-		secure: false,
-		auth: {
-			user: 'pasaporte@dea.ong', // generated ethereal user
-			pass: process.env.SMTP_KEY, // generated ethereal password
-		},
-	});
-	let info = await transporter.sendMail({
-		from: '"RUIDEA" pasaporte@dea.ong', // sender address
-		to: email,
-		subject: 'Solicitud de cambio de contraseña de RUIDEA',
-		text: 'Hola',
-		html: `<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional //EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:v="urn:schemas-microsoft-com:vml"> <head><!--[if gte mso 9]><xml ><o:OfficeDocumentSettings ><o:AllowPNG/><o:PixelsPerInch >96</o:PixelsPerInch ></o:OfficeDocumentSettings ></xml ><! [endif]--> <meta content="text/html; charset=utf-8" http-equiv="Content-Type"/> <meta content="width=device-width" name="viewport"/> <meta content="IE=edge" http-equiv="X-UA-Compatible"/> <title></title> <link rel="stylesheet" href="https://use.typekit.net/nkh3uvc.css"/> <style type="text/css"> body{margin: 0; padding: 0;}table, td, tr{vertical-align: top; border-collapse: collapse;}*{line-height: inherit;}a[x-apple-data-detectors="true"]{color: inherit !important; text-decoration: none !important;}</style> <style id="media-query" type="text/css"> @media (max-width: 570px){.block-grid, .col{min-width: 320px !important; max-width: 100% !important; display: block !important;}.block-grid{width: 100% !important;}.col{width: 100% !important;}.col > div{margin: 0 auto;}img.fullwidth, img.fullwidthOnMobile{max-width: 100% !important;}.no-stack .col{min-width: 0 !important; display: table-cell !important;}.no-stack.two-up .col{width: 50% !important;}.no-stack .col.num4{width: 33% !important;}.no-stack .col.num8{width: 66% !important;}.no-stack .col.num4{width: 33% !important;}.no-stack .col.num3{width: 25% !important;}.no-stack .col.num6{width: 50% !important;}.no-stack .col.num9{width: 75% !important;}.video-block{max-width: none !important;}.mobile_hide{min-height: 0px; max-height: 0px; max-width: 0px; display: none; overflow: hidden; font-size: 0px;}.desktop_hide{display: block !important; max-height: none !important;}}</style> </head> <body class="clean-body" style=" margin: 0; padding: 0; -webkit-text-size-adjust: 100%; background-color: #f2f2f2; " > <table bgcolor="#f2f2f2" cellpadding="0" cellspacing="0" class="nl-container" role="presentation" style=" table-layout: fixed; vertical-align: top; min-width: 320px; margin: 0 auto; border-spacing: 0; border-collapse: collapse; mso-table-lspace: 0pt; mso-table-rspace: 0pt; background-color: #f2f2f2; width: 100%; " valign="top" width="100%" > <tbody> <tr style="vertical-align: top" valign="top"> <td style="word-break: break-word; vertical-align: top" valign="top"> <div style="background-color: transparent"> <div class="block-grid" style=" margin: 0 auto; min-width: 320px; max-width: 550px; overflow-wrap: break-word; word-wrap: break-word; word-break: break-word; background-color: #ffffff; " > <div style=" border-collapse: collapse; display: table; width: 100%; background-color: #ffffff; " > <div class="col num12" style=" min-width: 320px; max-width: 550px; display: table-cell; vertical-align: top; width: 550px; " > <div style="width: 100% !important"> <div style=" border-top: 0px solid transparent; border-left: 0px solid transparent; border-bottom: 0px solid transparent; border-right: 0px solid transparent; padding-top: 15px; padding-bottom: 5px; padding-right: 10px; padding-left: 10px; " > <div style=" color: #101010; font-family: 'Muli', Tahoma, Verdana, Segoe, sans-serif; line-height: 1.2; padding-top: 10px; padding-right: 10px; padding-bottom: 10px; padding-left: 10px; " > <div style=" line-height: 1.2; font-size: 12px; font-family: 'Muli', Tahoma, Verdana, Segoe, sans-serif; color: #101010; mso-line-height-alt: 14px; " > <p style=" font-size: 14px; line-height: 1.2; text-align: center; font-family: Muli, Tahoma, Verdana, Segoe, sans-serif; word-break: break-word; mso-line-height-alt: 17px; margin: 0; " > <strong ><span style="font-size: 38px" >Cambie su contraseña de RUIDEA</span ></strong > </p></div></div></div></div></div></div></div></div><div style="background-color: transparent"> <div class="block-grid" style=" margin: 0 auto; min-width: 320px; max-width: 550px; overflow-wrap: break-word; word-wrap: break-word; word-break: break-word; background-color: #ffffff; " > <div style=" border-collapse: collapse; display: table; width: 100%; background-color: #ffffff; " > <div class="col num12" style=" min-width: 320px; max-width: 550px; display: table-cell; vertical-align: top; width: 550px; " > <div style="width: 100% !important"> <div style=" border-top: 0px solid transparent; border-left: 0px solid transparent; border-bottom: 0px solid transparent; border-right: 0px solid transparent; padding-top: 0px; padding-bottom: 30px; padding-right: 0px; padding-left: 0px; " > <div style=" color: #555555; font-family: 'Muli', Tahoma, Verdana, Segoe, sans-serif; line-height: 1.5; padding-top: 15px; padding-right: 35px; padding-bottom: 15px; padding-left: 35px; " > <div style=" line-height: 1.5; font-size: 12px; font-family: 'Muli', Tahoma, Verdana, Segoe, sans-serif; color: #555555; mso-line-height-alt: 18px; " > <p style=" font-size: 17px; line-height: 1.5; text-align: center; font-family: Muli, Tahoma, Verdana, Segoe, sans-serif; word-break: break-word; mso-line-height-alt: 26px; mso-ansi-font-size: 18px; margin: 0; " > <span style=" font-size: 17px; color: #808080; mso-ansi-font-size: 18px; " >Hemos recibido una solicitud para cambiar su contraseña de RUIDEA. En caso de que no hayas sido tú, ignora este email.</span > </p></div></div><div style=" color: #555555; font-family: 'Muli', Tahoma, Verdana, Segoe, sans-serif; line-height: 1.5; padding-top: 10px; padding-right: 35px; padding-bottom: 10px; padding-left: 35px; " > <div style=" line-height: 1.5; font-size: 12px; font-family: 'Muli', Tahoma, Verdana, Segoe, sans-serif; color: #555555; mso-line-height-alt: 18px; " > <p style=" font-size: 17px; line-height: 1.5; text-align: center; font-family: Muli, Tahoma, Verdana, Segoe, sans-serif; word-break: break-word; mso-line-height-alt: 26px; mso-ansi-font-size: 18px; margin: 0; " > <span style=" font-size: 17px; color: #808080; mso-ansi-font-size: 18px; " >Para cambiar su contraseña, entre al siguiente link y rellene el formulario con su nueva contraseña.</span > </p></div></div><div align="center" class="button-container" style=" padding-top: 15px; padding-right: 10px; padding-bottom: 10px; padding-left: 10px; " ><!--[if mso]><table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-spacing: 0; border-collapse: collapse; mso-table-lspace:0pt; mso-table-rspace:0pt;"><tr><td style="padding-top: 15px; padding-right: 10px; padding-bottom: 10px; padding-left: 10px" align="center"><v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="https://pasaporte.dea.ong" style="height:39pt; width:278.25pt; v-text-anchor:middle;" arcsize="12%" stroke="false" fillcolor="#41a1ac"><w:anchorlock/><v:textbox inset="0,0,0,0"><center style="color:#ffffff; font-family:Tahoma, Verdana, sans-serif; font-size:16px"><! [endif]--><a href="https://pasaporte.dea.ong/cambiarContraseña/${token}" style=" -webkit-text-size-adjust: none; text-decoration: none; display: inline-block; color: #ffffff; background-color: #41a1ac; border-radius: 6px; -webkit-border-radius: 6px; -moz-border-radius: 6px; width: auto; width: auto; border-top: 1px solid #41a1ac; border-right: 1px solid #41a1ac; border-bottom: 1px solid #41a1ac; border-left: 1px solid #41a1ac; padding-top: 10px; padding-bottom: 10px; font-family: 'Muli', Tahoma, Verdana, Segoe, sans-serif; text-align: center; mso-border-alt: none; word-break: keep-all; " target="_blank" ><span style=" padding-left: 30px; padding-right: 30px; font-size: 16px; display: inline-block; " ><span style=" font-size: 16px; line-height: 2; font-family: Muli, Tahoma, Verdana, Segoe, sans-serif; word-break: break-word; mso-line-height-alt: 32px; " ><strong >CAMBIAR CONTRASEÑA</strong ></span ></span ></a > </div></div></div></div></div></div></div><div style="background-color: transparent"> <div class="block-grid" style=" margin: 0 auto; min-width: 320px; max-width: 550px; overflow-wrap: break-word; word-wrap: break-word; word-break: break-word; background-color: #ffffff; " > <div style=" border-collapse: collapse; display: table; width: 100%; background-color: #ffffff; " > <div class="col num12" style=" min-width: 320px; max-width: 550px; display: table-cell; vertical-align: top; width: 550px; " > <div style="width: 100% !important"> <div style=" border-top: 0px solid transparent; border-left: 0px solid transparent; border-bottom: 0px solid transparent; border-right: 0px solid transparent; padding-top: 5px; padding-bottom: 5px; padding-right: 0px; padding-left: 0px; " > <div style=" color: #555555; font-family: 'Muli', Tahoma, Verdana, Segoe, sans-serif; line-height: 1.2; padding-top: 10px; padding-right: 10px; padding-bottom: 10px; padding-left: 10px; " > <div style=" line-height: 1.2; font-size: 12px; font-family: 'Muli', Tahoma, Verdana, Segoe, sans-serif; color: #555555; mso-line-height-alt: 14px; " > <p style=" font-size: 14px; line-height: 1.2; text-align: center; font-family: Muli, Tahoma, Verdana, Segoe, sans-serif; word-break: break-word; mso-line-height-alt: 17px; margin: 0; " > <em ><span style=" font-size: 13px; mso-ansi-font-size: 14px; " >Sistema desarrollado por el equipo de LectO, en colaboración con Disfam.</span ></em > </p></div></div></div></div></div></div></div></div></td></tr></tbody> </table> </body></html>`,
+	await send(email, 'Cambia tu contraseña de RUIDEA', {
+		heading: 'Cambia tu contraseña',
+		paragraphs: [
+			'Recibimos una solicitud para cambiar tu contraseña de RUIDEA.',
+			'Si no fuiste tú, puedes ignorar este correo sin problema. Para crear una nueva, usa el botón de abajo.',
+		],
+		buttonText: 'Cambiar mi contraseña',
+		buttonUrl: `${FRONTEND_URL}/cambiarContraseña/${token}`,
 	});
 };
 
