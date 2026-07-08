@@ -157,13 +157,17 @@ const send = async (to, subject, content) => {
 // Email-verification message sent right after registration.
 const sendEmail = async id => {
 	const user = await Usuario.findById(id);
-	const emailToken = signToken({ id, purpose: 'email-verify' });
+	// 24h window — long enough that people who read email once a day still make it, and it
+	// matches the "caduca en 24 horas" wording below. If it lapses, the verify page offers a
+	// "Reenviar correo" button that issues a fresh link, so an expired link is never a dead end.
+	const emailToken = signToken({ id, purpose: 'email-verify' }, { expiresIn: '24h' });
 
 	await send(user.correoElectronico, 'Confirma tu correo de RUIDEA', {
 		heading: 'Confirma tu correo',
 		paragraphs: [
 			'¡Hola! Gracias por registrarte en RUIDEA.',
 			'Solo falta un paso: confirma que este correo es tuyo. En cuanto lo hagas, un especialista revisará tu solicitud y te avisaremos por aquí.',
+			'Este enlace caduca en 24 horas. Si ya ha caducado, abre el enlace de todos modos y pulsa «Reenviar correo» para recibir uno nuevo.',
 		],
 		buttonText: 'Confirmar mi correo',
 		buttonUrl: `${FRONTEND_URL}/verificarEmail/${emailToken}`,
