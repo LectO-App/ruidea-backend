@@ -14,6 +14,8 @@ if (!JWT_SECRET) {
 
 const signToken = (payload, options = { expiresIn: '12h' }) => jwt.sign(payload, JWT_SECRET, options);
 
-const verifyToken = token => jwt.verify(token, JWT_SECRET);
+// `options` is passed straight to jwt.verify — e.g. { ignoreExpiration: true } to recover
+// the payload of an expired token (used by the email-verify resend flow).
+const verifyToken = (token, options = {}) => jwt.verify(token, JWT_SECRET, options);
 
 module.exports = { signToken, verifyToken };
