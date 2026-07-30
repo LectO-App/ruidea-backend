@@ -5,3 +5,4 @@ copy-db.js
 user-files
 zip-files
 .DS_Store
+scripts/backfill-report.json
