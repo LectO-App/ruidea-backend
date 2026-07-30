@@ -8,7 +8,10 @@ const generic = { standardHeaders: true, legacyHeaders: false };
 const emailLimiter = rateLimit({
 	...generic,
 	windowMs: 60 * 60 * 1000, // 1 hour
-	max: 5,
+	// 15/h, not 5/h: legitimate users retry a lot when a mail lands in spam or takes a
+	// while to arrive (and our audience retries more than most — see REGISTRATION_UX.md).
+	// Still low enough per-IP to stay useless as a spam relay.
+	max: 15,
 	message: { message: 'Demasiadas solicitudes. Intente nuevamente más tarde.' },
 });
 

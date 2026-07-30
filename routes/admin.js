@@ -77,8 +77,13 @@ router.post("/respuesta", authAdmin, validate(schemas.respuestaSchema), async (r
 router.post("/solicitudes", authAdmin, validate(schemas.solicitudesSchema), async (req, res) => {
   try {
     // Default view hides incomplete drafts (borrador); admin can still ask for them
-    // explicitly via condicion='borrador'.
-    const filter = req.body.condicion ? { estado: req.body.condicion } : { estado: { $ne: "borrador" } };
+    // explicitly via condicion='borrador', or for everything (drafts included) via 'todas'.
+    const filter =
+      req.body.condicion === "todas"
+        ? {}
+        : req.body.condicion
+          ? { estado: req.body.condicion }
+          : { estado: { $ne: "borrador" } };
     const usuarios = await Usuario.find(filter).sort({ fechaCreacion: -1 });
     res.json(usuarios);
   } catch (err) {

@@ -152,7 +152,7 @@ const respuestaSchema = z
 	.strip();
 
 const solicitudesSchema = z
-	.object({ condicion: z.enum(['', 'pendiente', 'aceptado', 'rechazado', 'revision', 'borrador']).optional().default('') })
+	.object({ condicion: z.enum(['', 'todas', 'pendiente', 'aceptado', 'rechazado', 'revision', 'borrador']).optional().default('') })
 	.strip();
 
 // The admin "modify" form posts flat diagnostic booleans (not the nested object) and a
