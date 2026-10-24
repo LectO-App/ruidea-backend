@@ -3,6 +3,7 @@ const assert = require('node:assert');
 
 const { rowToJson, jsonToRow, toData } = require('../db/usuarioJson');
 const { newObjectId, isValidObjectId, castObjectId, CastError } = require('../db/objectId');
+const { requestSerializer } = require('../functions/logger');
 
 // Synthetic record (no real person). Column values as Prisma returns them.
 const row = (overrides = {}) => ({
@@ -101,4 +102,12 @@ test('ids keep the ObjectId format', () => {
 	assert.equal(castObjectId('64B7F0C2A1B2C3D4E5F60718'), '64b7f0c2a1b2c3d4e5f60718');
 	assert.equal(castObjectId(null), null);
 	assert.throws(() => castObjectId('admin'), CastError);
+});
+
+test('request logs never carry document numbers, tokens or route params', () => {
+	const r = requestSerializer({ url: '/usuario/verificar/00000000T/1001', params: { numeroDocumento: '00000000T' } });
+	assert.equal(r.url, '/usuario/verificar/:numeroDocumento/:numeroPasaporte');
+	assert.equal('params' in r, false);
+	assert.equal(requestSerializer({ url: '/emailVerification/confirm/eyJhbGciOi.x.y' }).url, '/emailVerification/confirm/:token');
+	assert.equal(requestSerializer({ url: '/emailVerification/resend' }).url, '/emailVerification/resend');
 });

@@ -20,7 +20,7 @@ process.on("uncaughtException", (err) => logger.error({ err }, "uncaughtExceptio
 app.set("trust proxy", 1); // behind Azure's proxy: needed for secure cookies + real client IP
 
 app.use(helmet());
-app.use(pinoHttp({ logger }));
+app.use(pinoHttp({ logger, serializers: { req: logger.requestSerializer } }));
 app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true, limit: "1mb" }));
 app.use(cookieParser());
