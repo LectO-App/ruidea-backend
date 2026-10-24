@@ -1,7 +1,7 @@
 // Copies the RUIDEA data from MongoDB into the Postgres database at DATABASE_URL.
 //
 //   MONGO_URL=mongodb://<restored copy> DATABASE_URL=postgresql://... \
-//     node scripts/mongo-to-postgres.js [--replace] [--allow-atlas]
+//     node scripts/mongo-to-postgres.js [--replace] [--allow-atlas] [--resolve-passport-dupes]
 //
 // - MONGO_URL must be a restored copy of the data (mongorestore of a dump), never the
 //   production cluster. Atlas hosts (mongodb+srv / *.mongodb.net) are refused unless
@@ -11,6 +11,11 @@
 //   auditlogs. Tables that already hold rows are refused unless --replace is given (then
 //   they are emptied inside the same transaction).
 // - Ids (ObjectId hex strings), timestamps and password hashes are copied unchanged.
+// - Issued passport numbers shared by several people (left by master's old count-based
+//   numbering) are refused, unless --resolve-passport-dupes is given: then one holder keeps
+//   the number and the others get new numbers from the passport counter (see
+//   scripts/lib/copy-plan.js). The script prints who changed (ids and numbers only) and
+//   writes a 'migration.passport_reassigned' audit entry for each.
 // - Before committing, every usuario is serialized the way the API now does it and compared
 //   with what the old Mongoose model returned for the same document; any difference, or a
 //   count mismatch, rolls everything back and exits 1.
@@ -23,9 +28,12 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcrypt');
 const { Prisma } = require('@prisma/client');
 const { getPrisma } = require('../db/prisma');
+const { newObjectId } = require('../db/objectId');
 const { FIELDS, DIAGNOSTICO, DATE_FIELDS, KNOWN_KEYS, jsonToRow, rowToJson } = require('../db/usuarioJson');
+const { planPassports } = require('./lib/copy-plan');
 
-const USAGE = 'Usage: MONGO_URL=... DATABASE_URL=... node scripts/mongo-to-postgres.js [--replace] [--allow-atlas]';
+const USAGE =
+	'Usage: MONGO_URL=... DATABASE_URL=... node scripts/mongo-to-postgres.js [--replace] [--allow-atlas] [--resolve-passport-dupes]';
 const BATCH = 500;
 const HEX24 = /^[0-9a-f]{24}$/;
 
@@ -274,12 +282,13 @@ const scrubUrl = s => String(s).replace(/\/\/[^@/\s]*@/g, '//***@');
 
 const main = async () => {
 	const args = process.argv.slice(2);
-	const known = new Set(['--replace', '--allow-atlas']);
+	const known = new Set(['--replace', '--allow-atlas', '--resolve-passport-dupes']);
 	if (args.some(a => !known.has(a))) {
 		console.error(USAGE);
 		process.exit(2);
 	}
 	const replace = args.includes('--replace');
+	const resolvePassports = args.includes('--resolve-passport-dupes');
 	const { MONGO_URL, DATABASE_URL } = process.env;
 	if (!MONGO_URL || !DATABASE_URL) {
 		console.error(USAGE);
@@ -344,14 +353,55 @@ const main = async () => {
 	};
 	const emailDupes = dupes(rows.usuarios, r => r.correoElectronico);
 	if (emailDupes) tally(problems, 'usuarios.correoElectronico: duplicate values (groups)', emailDupes);
-	const passportDupes = dupes(rows.usuarios, r => (r.numeroPasaporte >= 1000 ? r.numeroPasaporte : null));
-	if (passportDupes) tally(problems, 'usuarios.numeroPasaporte: duplicate issued numbers (groups)', passportDupes);
+	const passportCounter = rows.counters.find(c => c.id === 'passport');
+	const passportPlan = planPassports(rows.usuarios, passportCounter ? passportCounter.seq : null);
+	if (passportPlan.groups.length && !resolvePassports) {
+		tally(
+			problems,
+			'usuarios.numeroPasaporte: issued numbers held by more than one person (groups; --resolve-passport-dupes gives the later holders new numbers)',
+			passportPlan.groups.length
+		);
+	}
 
 	if (problems.size) {
 		console.error('Not copied. The source data has values Postgres cannot take as they are:');
 		for (const [k, n] of problems) console.error(`  - ${k}: ${n}`);
 		console.error('Fix them in the restored MongoDB copy (not in production) and run again.');
 		process.exit(1);
+	}
+
+	// Rows this copy adds on purpose (on top of the source counts).
+	const added = { counters: 0, verifiers: 0, usuarios: 0, auditlogs: 0 };
+
+	// --resolve-passport-dupes: later holders get new numbers; the counter moves past them.
+	const reassignments = [];
+	if (resolvePassports && passportPlan.groups.length) {
+		const byId = new Map(rows.usuarios.map(r => [r.id, r]));
+		const now = new Date();
+		for (const group of passportPlan.groups) {
+			for (const r of group.reassigned) {
+				byId.get(r.id).numeroPasaporte = r.to;
+				expected.get(r.id).json.numeroPasaporte = r.to;
+				reassignments.push({ ...r, keptBy: group.keptBy });
+				rows.auditlogs.push({
+					id: newObjectId(),
+					action: 'migration.passport_reassigned',
+					actorType: 'system',
+					actorId: null,
+					target: r.id,
+					ip: null,
+					outcome: 'success',
+					meta: { from: r.from, to: r.to, keptBy: group.keptBy },
+					at: now,
+				});
+				added.auditlogs += 1;
+			}
+		}
+		if (passportCounter) passportCounter.seq = passportPlan.counterSeq;
+		else {
+			rows.counters.unshift({ id: 'passport', seq: passportPlan.counterSeq });
+			added.counters += 1;
+		}
 	}
 
 	// --- write Postgres ---
@@ -381,10 +431,11 @@ const main = async () => {
 				}
 				target[name] = await model.count();
 			}
-			const mismatched = COLLECTIONS.filter(name => target[name] !== source[name]);
+			const mismatched = COLLECTIONS.filter(name => target[name] !== source[name] + added[name]);
 			if (mismatched.length) throw new Abort(`count mismatch in ${mismatched.join(', ')}`);
 
-			// Every user must serialize exactly as the old API did, with the same password hash.
+			// Every user must serialize exactly as the old API did (apart from the changes made on
+			// purpose above), with the same password hash.
 			const stored = await tx.usuario.findMany();
 			for (const row of stored) {
 				const want = expected.get(row.id);
@@ -409,10 +460,20 @@ const main = async () => {
 	await prisma.$disconnect();
 
 	console.log('MongoDB -> Postgres copy committed.');
-	console.log('table        source   target');
-	for (const name of COLLECTIONS) console.log(`${name.padEnd(12)} ${String(source[name]).padStart(6)}   ${String(target[name]).padStart(6)}`);
-	console.log(`usuarios serialized identically to the old API: ${jsonOk}/${source.usuarios}`);
+	console.log('table        source    added   target');
+	for (const name of COLLECTIONS) {
+		console.log(`${name.padEnd(12)} ${String(source[name]).padStart(6)}   ${String(added[name]).padStart(6)}   ${String(target[name]).padStart(6)}`);
+	}
+	console.log(`usuarios serialized identically to the old API: ${jsonOk}/${source.usuarios}${reassignments.length ? ' (apart from the reassigned passport numbers below)' : ''}`);
 	console.log(`password hashes copied byte for byte: ${hashOk}/${source.usuarios}`);
+	if (reassignments.length) {
+		console.log(`Passport numbers reassigned (--resolve-passport-dupes): ${reassignments.length}`);
+		console.log('  These people now have a new passport number. Their passport downloads show it, but passports they');
+		console.log('  printed or saved before still show the old number, whose QR no longer verifies for them.');
+		console.log('  old: kept by <id>; <id> old -> new');
+		for (const r of reassignments) console.log(`  ${r.from}: kept by ${r.keptBy}; ${r.id} ${r.from} -> ${r.to}`);
+		console.log(`  counter 'passport' is now ${passportPlan.counterSeq}`);
+	}
 	if (notes.size) {
 		console.log('Notes:');
 		for (const [k, n] of [...notes].sort()) console.log(k.startsWith('collection ') ? `  - ${k}` : `  - ${k}: ${n}`);
