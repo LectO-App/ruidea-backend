@@ -84,6 +84,14 @@ const find = async (filter, { sort, skip, limit } = {}) => {
 
 const count = filter => wrap('usuarios.count', db().count({ where: whereOf(filter) }));
 
+// Whether an issued passport number (>= 1000) belongs to a record other than `exceptId`.
+const passportNumberTaken = async (numeroPasaporte, exceptId) => {
+	if (!isInt4(numeroPasaporte) || numeroPasaporte < 1000) return false;
+	const where = { numeroPasaporte };
+	if (exceptId != null) where.id = { not: String(exceptId) };
+	return Boolean(await wrap('usuarios.passportNumberTaken', db().findFirst({ where, select: { id: true } })));
+};
+
 const emailExists = async email => {
 	if (typeof email !== 'string') return false;
 	const correoElectronico = email.trim().toLowerCase();
@@ -139,6 +147,7 @@ module.exports = {
 	find,
 	count,
 	emailExists,
+	passportNumberTaken,
 	create,
 	updateById,
 	deleteById,

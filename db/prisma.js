@@ -35,4 +35,7 @@ const isUniqueViolation = err => Boolean(err) && err.code === 'P2002';
 // Row not found for update/delete.
 const isNotFound = err => Boolean(err) && err.code === 'P2025';
 
-module.exports = { getPrisma, wrap, DbError, isUniqueViolation, isNotFound };
+// Unique violation on the issued-passport-number index.
+const isPassportNumberTaken = err => isUniqueViolation(err) && /numeroPasaporte/.test(JSON.stringify(err.target || ''));
+
+module.exports = { getPrisma, wrap, DbError, isUniqueViolation, isNotFound, isPassportNumberTaken };

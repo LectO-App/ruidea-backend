@@ -13,6 +13,11 @@ const schemas = require("../validation/schemas");
 const { nextPassporte } = require("../functions/passport");
 const { writeAudit } = require("../functions/audit");
 const { warmPassport } = require("../functions/passportRender");
+const { isPassportNumberTaken } = require("../db/prisma");
+
+// Issued passport numbers are unique (unique index). Collisions answer 409 instead of 500.
+const PASSPORT_TAKEN = { message: "Ese número de pasaporte ya está asignado a otra persona." };
+const PASSPORT_RACE = { message: "No se pudo asignar un número de pasaporte libre. Inténtalo de nuevo." };
 
 // Admin login issues a real server-side admin session cookie (§1.3). No more shared
 // authkey + client-set `admin=true`.
@@ -68,6 +73,7 @@ router.post("/respuesta", authAdmin, validate(schemas.respuestaSchema), async (r
     res.json({ ok: true });
   } catch (err) {
     req.log && req.log.error({ err }, "respuesta failed");
+    if (isPassportNumberTaken(err)) return res.status(409).json(PASSPORT_RACE);
     res.status(500).json({ message: "Hubo un error" });
   }
 });
@@ -98,6 +104,7 @@ router.post("/modificarSolicitud", authAdmin, validate(schemas.modificarSchema),
 
     let numero = m.numeroPasaporte != null ? m.numeroPasaporte : user.numeroPasaporte;
     if (numero == null || numero < 1000) numero = await nextPassporte();
+    else if (await Usuario.passportNumberTaken(numero, user._id)) return res.status(409).json(PASSPORT_TAKEN);
 
     await Usuario.updateById(m.id, {
       nombre: m.nombre,
@@ -125,6 +132,7 @@ router.post("/modificarSolicitud", authAdmin, validate(schemas.modificarSchema),
     res.json({ message: "Usuario actualizado correctamente!" });
   } catch (err) {
     req.log && req.log.error({ err }, "modificarSolicitud failed");
+    if (isPassportNumberTaken(err)) return res.status(409).json(PASSPORT_TAKEN);
     res.status(500).json({ message: "Hubo un error" });
   }
 });
