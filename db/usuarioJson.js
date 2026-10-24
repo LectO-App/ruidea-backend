@@ -96,6 +96,10 @@ const jsonToRow = (json, password) => {
 	return row;
 };
 
+// Stored form of an email address: trimmed and lowercased (the Mongoose setters). Every
+// write stores it this way and every lookup matches on it, so matching ignores case.
+const normalizeEmail = email => (typeof email === 'string' ? email.trim().toLowerCase() : email);
+
 // API-shaped values (as the routes wrote them with $set / create) -> Prisma `data`.
 // - undefined values are skipped (Mongoose drops undefined keys from updates);
 // - correoElectronico is trimmed and lowercased (the Mongoose setters);
@@ -110,7 +114,7 @@ const toData = values => {
 			const d = value || {};
 			for (const [k, col] of DIAGNOSTICO) data[col] = d[k] === undefined ? false : d[k];
 		} else if (key === 'correoElectronico') {
-			data[key] = typeof value === 'string' ? value.trim().toLowerCase() : value;
+			data[key] = normalizeEmail(value);
 		} else if (DATE_FIELDS.has(key)) {
 			data[key] = value == null ? null : new Date(value);
 		} else if (key === 'password' || KIND.has(key)) {
@@ -120,4 +124,4 @@ const toData = values => {
 	return data;
 };
 
-module.exports = { FIELDS, DIAGNOSTICO, DATE_FIELDS, KNOWN_KEYS, rowToJson, jsonToRow, toData };
+module.exports = { FIELDS, DIAGNOSTICO, DATE_FIELDS, KNOWN_KEYS, rowToJson, jsonToRow, toData, normalizeEmail };

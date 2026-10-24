@@ -1,6 +1,8 @@
 // Pure planning helpers for scripts/mongo-to-postgres.js (no I/O; unit-tested in
 // test/copy-plan.test.js). They take usuario rows in MongoDB insertion order.
 
+const { normalizeEmail } = require('../../db/usuarioJson');
+
 const ISSUED = 1000;
 
 // Duplicate issued passport numbers. Within each group one holder keeps the number and
@@ -46,4 +48,29 @@ const planPassports = (rows, counterSeq) => {
 	return { groups: out, counterSeq: seq };
 };
 
-module.exports = { planPassports };
+// Emails. Before June 2026 master stored addresses as typed, but it has always lowercased
+// the address it looks up, so users stored with capitals can't log in by email. The copy
+// stores every address lowercased and trimmed, like every write does now. Two users whose
+// addresses differ only in case or spaces would collapse into one address; those groups are
+// returned as collisions and must be left as they are.
+const planEmails = rows => {
+	const groups = new Map();
+	for (const row of rows) {
+		const key = normalizeEmail(row.correoElectronico);
+		if (!groups.has(key)) groups.set(key, []);
+		groups.get(key).push(row);
+	}
+	const lowercase = [];
+	const collisions = [];
+	for (const [email, members] of groups) {
+		if (members.length > 1) {
+			// Identical addresses are exact duplicates, reported separately (Postgres can't store them).
+			if (new Set(members.map(r => r.correoElectronico)).size === members.length) collisions.push(members.map(r => r.id));
+		} else if (members[0].correoElectronico !== email) {
+			lowercase.push({ id: members[0].id, to: email });
+		}
+	}
+	return { lowercase, collisions };
+};
+
+module.exports = { planPassports, planEmails };

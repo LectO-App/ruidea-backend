@@ -2,6 +2,7 @@
 //
 //   MONGO_URL=mongodb://<restored copy> DATABASE_URL=postgresql://... \
 //     node scripts/mongo-to-postgres.js [--replace] [--allow-atlas] [--resolve-passport-dupes]
+//     [--allow-email-merge-report]
 //
 // - MONGO_URL must be a restored copy of the data (mongorestore of a dump), never the
 //   production cluster. Atlas hosts (mongodb+srv / *.mongodb.net) are refused unless
@@ -16,6 +17,10 @@
 //   the number and the others get new numbers from the passport counter (see
 //   scripts/lib/copy-plan.js). The script prints who changed (ids and numbers only) and
 //   writes a 'migration.passport_reassigned' audit entry for each.
+// - Email addresses are stored lowercased and trimmed, as every write does now (users
+//   stored with capitals could not log in by email). If two users' addresses differ only in
+//   case, the copy is refused, unless --allow-email-merge-report is given: then those users
+//   are copied unchanged and their ids (never the addresses) are listed.
 // - Before committing, every usuario is serialized the way the API now does it and compared
 //   with what the old Mongoose model returned for the same document; any difference, or a
 //   count mismatch, rolls everything back and exits 1.
@@ -30,10 +35,10 @@ const { Prisma } = require('@prisma/client');
 const { getPrisma } = require('../db/prisma');
 const { newObjectId } = require('../db/objectId');
 const { FIELDS, DIAGNOSTICO, DATE_FIELDS, KNOWN_KEYS, jsonToRow, rowToJson } = require('../db/usuarioJson');
-const { planPassports } = require('./lib/copy-plan');
+const { planPassports, planEmails } = require('./lib/copy-plan');
 
 const USAGE =
-	'Usage: MONGO_URL=... DATABASE_URL=... node scripts/mongo-to-postgres.js [--replace] [--allow-atlas] [--resolve-passport-dupes]';
+	'Usage: MONGO_URL=... DATABASE_URL=... node scripts/mongo-to-postgres.js [--replace] [--allow-atlas] [--resolve-passport-dupes] [--allow-email-merge-report]';
 const BATCH = 500;
 const HEX24 = /^[0-9a-f]{24}$/;
 
@@ -208,9 +213,6 @@ const convertUsuario = (Usuario, raw) => {
 		if (!KNOWN_KEYS.has(key)) tally(notes, `usuarios.${key}: field from an older schema (kept in extra)`);
 	}
 	if (json.fechaCreacion == null) tally(notes, 'usuarios.fechaCreacion: missing (as today, these users cannot confirm email or change password)');
-	if (typeof json.correoElectronico === 'string' && json.correoElectronico !== json.correoElectronico.trim().toLowerCase()) {
-		tally(notes, 'usuarios.correoElectronico: not lowercase (as today, these users cannot log in by email)');
-	}
 	if (typeof password === 'string') {
 		const m = /^\$2[aby]\$(\d\d)\$[./A-Za-z0-9]{53}$/.exec(password);
 		tally(notes, m ? `usuarios.password: bcrypt cost ${m[1]}` : 'usuarios.password: NOT a bcrypt hash (login already fails for these)');
@@ -282,13 +284,14 @@ const scrubUrl = s => String(s).replace(/\/\/[^@/\s]*@/g, '//***@');
 
 const main = async () => {
 	const args = process.argv.slice(2);
-	const known = new Set(['--replace', '--allow-atlas', '--resolve-passport-dupes']);
+	const known = new Set(['--replace', '--allow-atlas', '--resolve-passport-dupes', '--allow-email-merge-report']);
 	if (args.some(a => !known.has(a))) {
 		console.error(USAGE);
 		process.exit(2);
 	}
 	const replace = args.includes('--replace');
 	const resolvePassports = args.includes('--resolve-passport-dupes');
+	const allowEmailMerge = args.includes('--allow-email-merge-report');
 	const { MONGO_URL, DATABASE_URL } = process.env;
 	if (!MONGO_URL || !DATABASE_URL) {
 		console.error(USAGE);
@@ -353,6 +356,14 @@ const main = async () => {
 	};
 	const emailDupes = dupes(rows.usuarios, r => r.correoElectronico);
 	if (emailDupes) tally(problems, 'usuarios.correoElectronico: duplicate values (groups)', emailDupes);
+	const emailPlan = planEmails(rows.usuarios);
+	if (emailPlan.collisions.length && !allowEmailMerge) {
+		tally(
+			problems,
+			'usuarios.correoElectronico: groups of users whose addresses differ only in letter case or spaces (lowercasing would merge them; --allow-email-merge-report copies them unchanged and lists their ids)',
+			emailPlan.collisions.length
+		);
+	}
 	const passportCounter = rows.counters.find(c => c.id === 'passport');
 	const passportPlan = planPassports(rows.usuarios, passportCounter ? passportCounter.seq : null);
 	if (passportPlan.groups.length && !resolvePassports) {
@@ -366,17 +377,25 @@ const main = async () => {
 	if (problems.size) {
 		console.error('Not copied. The source data has values Postgres cannot take as they are:');
 		for (const [k, n] of problems) console.error(`  - ${k}: ${n}`);
-		console.error('Fix them in the restored MongoDB copy (not in production) and run again.');
+		console.error('Pass the flag named above where there is one, or fix the data in the restored MongoDB copy (never in');
+		console.error('production), and run again.');
 		process.exit(1);
 	}
 
 	// Rows this copy adds on purpose (on top of the source counts).
 	const added = { counters: 0, verifiers: 0, usuarios: 0, auditlogs: 0 };
 
+	const byId = new Map(rows.usuarios.map(r => [r.id, r]));
+
+	// Store every address lowercased, except groups that would collapse into one.
+	for (const { id, to } of emailPlan.lowercase) {
+		byId.get(id).correoElectronico = to;
+		expected.get(id).json.correoElectronico = to;
+	}
+
 	// --resolve-passport-dupes: later holders get new numbers; the counter moves past them.
 	const reassignments = [];
 	if (resolvePassports && passportPlan.groups.length) {
-		const byId = new Map(rows.usuarios.map(r => [r.id, r]));
 		const now = new Date();
 		for (const group of passportPlan.groups) {
 			for (const r of group.reassigned) {
@@ -464,8 +483,15 @@ const main = async () => {
 	for (const name of COLLECTIONS) {
 		console.log(`${name.padEnd(12)} ${String(source[name]).padStart(6)}   ${String(added[name]).padStart(6)}   ${String(target[name]).padStart(6)}`);
 	}
-	console.log(`usuarios serialized identically to the old API: ${jsonOk}/${source.usuarios}${reassignments.length ? ' (apart from the reassigned passport numbers below)' : ''}`);
+	console.log(`usuarios serialized identically to the old API: ${jsonOk}/${source.usuarios} (apart from the lowercased emails and reassigned passport numbers below)`);
 	console.log(`password hashes copied byte for byte: ${hashOk}/${source.usuarios}`);
+	console.log(`Emails stored lowercased: ${emailPlan.lowercase.length} (these users could not log in by email before; now they can)`);
+	if (emailPlan.collisions.length) {
+		console.log(`Email collisions copied unchanged (--allow-email-merge-report): ${emailPlan.collisions.length} groups`);
+		console.log('  These users\' addresses differ only in case. They cannot log in by email, and an admin decision');
+		console.log('  sent for one of them by address reaches the lowercase one. Resolve each group by hand.');
+		emailPlan.collisions.forEach((ids, i) => console.log(`  group ${i + 1}: ${ids.join(', ')}`));
+	}
 	if (reassignments.length) {
 		console.log(`Passport numbers reassigned (--resolve-passport-dupes): ${reassignments.length}`);
 		console.log('  These people now have a new passport number. Their passport downloads show it, but passports they');

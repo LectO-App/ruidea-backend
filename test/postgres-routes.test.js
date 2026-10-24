@@ -52,10 +52,12 @@ const fake = {
 // Must happen before any module that destructures getPrisma is loaded.
 require('../db/prisma').getPrisma = () => fake;
 
+const bcrypt = require('bcrypt');
 const express = require('express');
 const cookieParser = require('cookie-parser');
 const { signToken } = require('../functions/tokens');
 const { nextPassporte } = require('../functions/passport');
+const { planEmails } = require('../scripts/lib/copy-plan');
 
 const user = (id, overrides = {}) => ({
 	id,
@@ -174,3 +176,30 @@ test('accepting someone answers 409 when the allocated number is taken concurren
 	assert.equal(res.status, 409);
 	assert.match((await res.json()).message, /número de pasaporte/);
 });
+
+test('a user stored with capitals in the email logs in by email once the copy has lowercased it', async () => {
+	const password = 'Clave-Sintetica-1';
+	const stored = 'Mixta.Uno@Example.TEST';
+	const hash = await bcrypt.hash(password, 4);
+	const login = user => post('/usuario/login', { user, password });
+
+	// As copied by the old script (address kept as stored): login by email never matched.
+	reset([user(A, { correoElectronico: stored, password: hash, numeroPasaporte: 1001, estado: 'aceptado' })]);
+	assert.equal((await login(stored)).status, 401);
+
+	// As copied now: the copy plan lowercases the stored address.
+	for (const { id, to } of planEmails(rows).lowercase) rows.find(r => r.id === id).correoElectronico = to;
+	assert.equal(rows[0].correoElectronico, 'mixta.uno@example.test');
+	for (const typed of [stored, 'mixta.uno@example.test', '  MIXTA.UNO@EXAMPLE.TEST ']) {
+		const res = await login(typed);
+		assert.equal(res.status, 200, typed);
+		const body = await res.json();
+		assert.equal(body.correcto, true);
+		assert.equal(body.usuario._id, A);
+		assert.equal('password' in body.usuario, false);
+	}
+	// Passport-number login is unchanged.
+	assert.equal((await login('1001')).status, 200);
+	assert.equal((await post('/usuario/login', { user: stored, password: 'otra-clave' })).status, 401);
+});
+

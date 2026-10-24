@@ -6,7 +6,7 @@
 // that leaves the hash out, so res.json(user) returns exactly what it did before.
 const { getPrisma, wrap, DbError, isNotFound } = require('../db/prisma');
 const { castObjectId, newObjectId } = require('../db/objectId');
-const { rowToJson, toData } = require('../db/usuarioJson');
+const { rowToJson, toData, normalizeEmail } = require('../db/usuarioJson');
 
 const db = () => getPrisma().usuario;
 
@@ -52,10 +52,11 @@ const findById = async id => {
 	return toUsuario(await wrap('usuarios.findById', db().findUnique({ where: { id: key } })));
 };
 
-// Emails are matched trimmed and lowercased (Mongoose applied the schema setters to queries).
+// Emails are matched trimmed and lowercased (Mongoose applied the schema setters to queries),
+// against addresses stored the same way, so the match ignores case.
 const findByEmail = async email => {
 	if (typeof email !== 'string') return null;
-	const correoElectronico = email.trim().toLowerCase();
+	const correoElectronico = normalizeEmail(email);
 	return toUsuario(await wrap('usuarios.findByEmail', db().findUnique({ where: { correoElectronico } })));
 };
 
@@ -94,7 +95,7 @@ const passportNumberTaken = async (numeroPasaporte, exceptId) => {
 
 const emailExists = async email => {
 	if (typeof email !== 'string') return false;
-	const correoElectronico = email.trim().toLowerCase();
+	const correoElectronico = normalizeEmail(email);
 	const row = await wrap('usuarios.emailExists', db().findUnique({ where: { correoElectronico }, select: { id: true } }));
 	return Boolean(row);
 };
