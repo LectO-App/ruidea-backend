@@ -15,8 +15,7 @@ router.post("/confirm/:token", async (req, res) => {
     const user = await Usuario.findById(payload.id);
     if (!user) return res.status(400).send("No se encontró ningún usuario con ese ID.");
 
-    user.emailVerificado = true;
-    await user.save();
+    await Usuario.save(user, { emailVerificado: true });
     res.send("Usuario verificado!");
   } catch (err) {
     return res.status(400).json({ message: "Token inválido o expirado." });

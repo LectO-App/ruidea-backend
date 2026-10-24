@@ -25,6 +25,8 @@ RUN apt-get update && apt-get install -y \
 ENV NODE_ENV=production
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+# Prisma: no update/telemetry checks at build or start.
+ENV CHECKPOINT_DISABLE=1
 
 WORKDIR /usr/src/app
 
@@ -34,6 +36,9 @@ RUN npm ci --omit=dev
 
 COPY . .
 
+# Generate the Prisma client for prisma/schema.prisma (engines come from npm ci above).
+RUN ./node_modules/.bin/prisma generate
+
 # Drop root: run as the built-in unprivileged "node" user
 USER node
 
@@ -42,4 +47,6 @@ EXPOSE 3001
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3001)+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-CMD ["npm", "start"]
+# Apply pending database migrations to DATABASE_URL (idempotent; an empty database gets the
+# whole schema), then start the API as before. If migrations fail the container exits.
+CMD ["sh", "-c", "./node_modules/.bin/prisma migrate deploy && exec npm start"]
