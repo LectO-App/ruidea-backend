@@ -1,6 +1,5 @@
 const express = require("express");
 const app = express();
-const mongoose = require("mongoose");
 const cors = require("cors");
 const helmet = require("helmet");
 const cookieParser = require("cookie-parser");
@@ -10,6 +9,7 @@ const pinoHttp = require("pino-http");
 require("dotenv/config");
 
 const logger = require("./functions/logger");
+const { getPrisma } = require("./db/prisma");
 
 // Safety net: Express 4 does not forward rejections from async route handlers to the
 // error handler, so one stray rejection would otherwise crash the process. Log and
@@ -87,12 +87,13 @@ app.use((err, req, res, next) => {
   res.status(500).json({ message: "Error interno del servidor" });
 });
 
-// Connecting to data-base (mongoose 8: promise-based, no deprecated options)
-mongoose.set("strictQuery", true);
-mongoose
-  .connect(process.env.DB_CONNECTION)
+// Connecting to the Postgres database (DATABASE_URL). The schema is applied by
+// `prisma migrate deploy` before the server starts (see Dockerfile). Prisma reconnects on
+// its own; queries fail with a 500 while the database is unreachable.
+getPrisma()
+  .$connect()
   .then(() => logger.info("Connected to DB"))
-  .catch((err) => logger.error({ err }, "DB connection failed"));
+  .catch((err) => logger.error({ code: err.errorCode || err.code || err.name }, "DB connection failed"));
 
 app.listen(process.env.PORT || 3001, () => {
   logger.info(`Server listening on ${process.env.PORT || 3001}`);

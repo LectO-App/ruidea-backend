@@ -1,0 +1,108 @@
+// Postgres schema (replaces the Mongoose models). Table and column names keep the MongoDB
+// collection and field names, so ids, API fields and existing knowledge of the data carry
+// over unchanged. The data copy from MongoDB is scripts/mongo-to-postgres.js.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// One applicant / passport holder (was the `usuarios` collection).
+/// `id` is the 24-hex ObjectId string; new rows get a newly generated one (db/objectId.js),
+/// so URLs, session tokens and email links keep working across the migration.
+/// Columns are nullable wherever MongoDB could hold null or a missing value; the column
+/// defaults are the old Mongoose defaults.
+model Usuario {
+  id                  String    @id
+  nombre              String?
+  apellidos           String?
+  paisResidencia      String?
+  localidadResidencia String?
+  lugarNacimiento     String?
+  tipoDocumento       String?
+  numeroDocumento     String?
+  fechaNacimiento     DateTime? @db.Timestamptz(3)
+  /// Stored trimmed and lowercased (as the Mongoose setters did).
+  correoElectronico   String    @unique
+  numeroTelefono      String?
+  /// diagnostico.{dislexia,discalculia,disortografía,dispraxia,tdah}
+  dislexia            Boolean?  @default(false)
+  discalculia         Boolean?  @default(false)
+  disortografia       Boolean?  @default(false)
+  dispraxia           Boolean?  @default(false)
+  tdah                Boolean?  @default(false)
+  esTutor             Boolean?  @default(false)
+  tutorNombre         String?   @default("")
+  tutorApellidos      String?   @default("")
+  tutorParentesco     String?   @default("")
+  /// bcrypt hash, copied byte for byte from MongoDB.
+  password            String
+  emailVerificado     Boolean?  @default(false)
+  fechaCreacion       DateTime? @db.Timestamptz(3)
+  estado              String?   @default("borrador")
+  mensajeMedico       String?   @default("")
+  /// -1 until a passport is issued; issued numbers (>= 1000) are unique (partial unique
+  /// index usuarios_numeroPasaporte_issued_key in the migration SQL).
+  numeroPasaporte     Int?      @default(-1)
+  aceptoRecibirInfo   Boolean?  @default(false)
+  aceptoSolicitud     Boolean?  @default(false)
+  fechaConsentimiento DateTime? @db.Timestamptz(3)
+  fechaEnvio          DateTime? @db.Timestamptz(3)
+  archivoBlob         String?   @default("")
+  /// Leftovers of the MongoDB document that have no column: fields from older schema
+  /// versions and explicit nulls on optional fields. Returned in API responses exactly as
+  /// Mongoose returned them (db/usuarioJson.js).
+  extra               Json?
+  /// Insertion order. MongoDB returned unsorted results (and sort ties) in insertion order;
+  /// the copy script inserts in that order and new rows come after, so lists, the Excel
+  /// export and "first match" lookups keep the same order. Not part of the API.
+  orden               Int       @default(autoincrement())
+
+  @@index([numeroPasaporte])
+  @@index([estado])
+  @@index([fechaCreacion(sort: Desc)])
+  @@map("usuarios")
+}
+
+/// Atomic sequences (was the `counters` collection). id 'passport' -> last issued number.
+model Counter {
+  id  String @id
+  seq Int    @default(1000)
+
+  @@map("counters")
+}
+
+/// Append-only audit trail (was the `auditlogs` collection).
+model AuditLog {
+  id        String   @id
+  action    String
+  actorType String?  @default("anonymous")
+  actorId   String?
+  target    String?
+  ip        String?
+  outcome   String?
+  meta      Json?    @default("{}")
+  at        DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([at(sort: Desc)])
+  @@index([action, at(sort: Desc)])
+  @@map("auditlogs")
+}
+
+/// Relying parties allowed to verify passports (was the `verifiers` collection).
+/// Keys are stored only as SHA-256 hashes.
+model Verifier {
+  id            String    @id
+  nombre        String
+  keyHash       String
+  activo        Boolean?  @default(true)
+  fechaCreacion DateTime? @default(now()) @db.Timestamptz(3)
+  ultimoUso     DateTime? @db.Timestamptz(3)
+
+  @@index([keyHash])
+  @@map("verifiers")
+}

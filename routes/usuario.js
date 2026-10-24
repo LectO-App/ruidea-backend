@@ -2,13 +2,12 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcrypt');
 const crypto = require('crypto');
-const mongoose = require('mongoose');
 
 const Usuario = require('../models/modeloUsuario');
 
 // Guards against CastError crashes: a non-ObjectId id (e.g. the admin session's "admin")
 // must yield a clean 4xx, never an unhandled rejection that takes down the process.
-const isValidId = id => mongoose.isValidObjectId(id);
+const { isValidObjectId: isValidId } = require('../db/objectId');
 const { verifyToken } = require('../functions/tokens');
 const { issueSession, clearSession, authUser, authAdmin } = require('../middlewares/session');
 const { emailLimiter, authLimiter, verifyLimiter } = require('../middlewares/rate-limit');
@@ -46,7 +45,7 @@ router.post('/verificar/:numeroDocumento/:numeroPasaporte', verifyLimiter, async
 	const numeroPasaporte = Number(req.params.numeroPasaporte);
 	if (!Number.isFinite(numeroPasaporte)) return res.json({ existe: false });
 
-	const usuario = await Usuario.findOne({ numeroPasaporte, estado: 'aceptado' });
+	const usuario = await Usuario.findByPassportNumber(numeroPasaporte, 'aceptado');
 	const ok = usuario && usuario.numeroDocumento == req.params.numeroDocumento;
 	writeAudit(req, {
 		action: 'passport.verify_link',
@@ -71,11 +70,11 @@ router.post('/verificarCheckPassword', verifyLimiter, validate(schemas.verifyChe
 			return res.status(401).json({ correcto: false });
 		}
 
-		const usuario = await Usuario.findOne({ numeroPasaporte: pasaporte, estado: 'aceptado' });
+		const usuario = await Usuario.findByPassportNumber(pasaporte, 'aceptado');
 		writeAudit(req, {
 			action: 'passport.lookup',
 			actorType: verifier ? 'verifier' : 'anonymous',
-			actorId: verifier ? String(verifier._id) : 'shared',
+			actorId: verifier ? verifier.id : 'shared',
 			target: String(pasaporte),
 			outcome: usuario ? 'success' : 'not_found',
 		});
@@ -111,8 +110,7 @@ router.get('/estado/:id', authUser, async (req, res) => {
 router.post('/login', authLimiter, validate(schemas.loginSchema), async (req, res) => {
 	try {
 		const { user, password } = req.body;
-		const query = !isNaN(user) ? { numeroPasaporte: Number(user) } : { correoElectronico: user };
-		const usuario = await Usuario.findOne(query);
+		const usuario = !isNaN(user) ? await Usuario.findByPassportNumber(Number(user)) : await Usuario.findByEmail(user);
 		if (usuario == null) return res.status(401).json({ correcto: false });
 
 		const match = await bcrypt.compare(password, usuario.password);
@@ -136,7 +134,7 @@ router.post('/logout', (req, res) => {
 });
 
 router.get('/count', authAdmin, async (req, res) => {
-	const cant = await Usuario.countDocuments();
+	const cant = await Usuario.count();
 	res.json({ cant });
 });
 
@@ -168,7 +166,7 @@ router.post('/forgot-password', emailLimiter, validate(schemas.forgotPasswordSch
 	// Same response whether or not the email exists — no enumeration oracle (§10.2).
 	const generic = () => res.send('Si el correo está registrado, enviaremos un email de cambio de contraseña.');
 	try {
-		const user = await Usuario.findOne({ correoElectronico: req.body.email });
+		const user = await Usuario.findByEmail(req.body.email);
 		if (user) await sendPasswordResetEmail(req.body.email, user._id);
 		writeAudit(req, { action: 'user.forgot_password', outcome: user ? 'success' : 'not_found' });
 		generic();
@@ -189,8 +187,7 @@ router.post('/change-password', authLimiter, validate(schemas.changePasswordSche
 		const user = await Usuario.findById(payload.id);
 		if (!user) return res.status(400).json({ message: 'Token inválido.' });
 
-		user.password = await bcrypt.hash(password, 10);
-		await user.save();
+		await Usuario.save(user, { password: await bcrypt.hash(password, 10) });
 		writeAudit(req, { action: 'user.change_password', actorId: String(user._id), outcome: 'success' });
 		res.json({ correcto: true });
 	} catch (err) {
@@ -203,7 +200,7 @@ router.post('/change-password', authLimiter, validate(schemas.changePasswordSche
 router.delete('/:id', authAdmin, async (req, res) => {
 	if (!isValidId(req.params.id)) return res.status(404).json({ message: 'Usuario no encontrado' });
 	try {
-		const user = await Usuario.findByIdAndDelete(req.params.id);
+		const user = await Usuario.deleteById(req.params.id);
 		if (user && user.archivoBlob) await deleteBlob(user.archivoBlob);
 		writeAudit(req, { action: 'user.delete', actorType: 'admin', actorId: req.user.id, target: req.params.id, outcome: user ? 'success' : 'not_found' });
 		res.json({ message: 'Eliminado!', user });

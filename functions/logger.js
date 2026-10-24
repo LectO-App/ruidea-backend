@@ -14,6 +14,8 @@ const logger = pino({
 			'password',
 			'*.password',
 			'DB_CONNECTION',
+			'DATABASE_URL',
+			'MONGO_URL',
 			'AZURE_STORAGE_CONNECTION_STRING',
 		],
 		remove: true,

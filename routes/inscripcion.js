@@ -1,10 +1,11 @@
 const express = require('express');
 const router = express.Router();
-const mongoose = require('mongoose');
 const bcrypt = require('bcrypt');
 const Zip = require('jszip');
 
 const Usuario = require('../models/modeloUsuario');
+const { isValidObjectId: isValidId } = require('../db/objectId');
+const { isUniqueViolation } = require('../db/prisma');
 const { issueSession, authUser, authAdmin } = require('../middlewares/session');
 const { registerLimiter } = require('../middlewares/rate-limit');
 const { validate } = require('../middlewares/validate');
@@ -30,8 +31,6 @@ const MAX_FILES = 10;
 // Days the medical review typically takes — surfaced to the user on the completion
 // screen so "what happens next" has an honest timeline (§7).
 const REVIEW_SLA_DAYS = 5;
-
-const isValidId = id => mongoose.isValidObjectId(id);
 
 // The shared "what happens next" payload returned after a completed submission (§7).
 // The frontend turns this into a real completion moment instead of guessing.
@@ -77,10 +76,10 @@ router.get('/', authAdmin, async (req, res) => {
 	try {
 		const page = Math.max(1, parseInt(req.query.page, 10) || 1);
 		const limit = Math.min(200, Math.max(1, parseInt(req.query.limit, 10) || 50));
-		const filter = req.query.includeDrafts === 'true' ? {} : { estado: { $ne: 'borrador' } };
+		const filter = req.query.includeDrafts === 'true' ? {} : { estadoNot: 'borrador' };
 		const [users, total] = await Promise.all([
-			Usuario.find(filter).sort({ fechaCreacion: -1 }).skip((page - 1) * limit).limit(limit),
-			Usuario.countDocuments(filter),
+			Usuario.find(filter, { sort: 'newest', skip: (page - 1) * limit, limit }),
+			Usuario.count(filter),
 		]);
 		res.json({ users, page, limit, total });
 	} catch (err) {
@@ -93,7 +92,7 @@ router.get('/', authAdmin, async (req, res) => {
 // so the long application can be filled progressively and resumed. ~15 seconds.
 router.post('/draft', registerLimiter, validate(schemas.draftStartSchema), async (req, res) => {
 	try {
-		const existing = await Usuario.findOne({ correoElectronico: req.body.correoElectronico }).select('estado');
+		const existing = await Usuario.findByEmail(req.body.correoElectronico);
 		if (existing) {
 			// Don't silently fork accounts; tell them to sign in / resume instead.
 			return res.status(409).json({ message: 'Ya existe una cuenta con este correo. Inicia sesión para continuar.' });
@@ -111,7 +110,7 @@ router.post('/draft', registerLimiter, validate(schemas.draftStartSchema), async
 		res.status(201).json({ id: String(saved._id), usuario: saved, csrfToken: csrf, siguientePaso: 'datos-personales' });
 	} catch (err) {
 		req.log && req.log.error({ err }, 'draft create failed');
-		if (err.code === 11000) return res.status(409).json({ message: 'El correo ya está registrado' });
+		if (isUniqueViolation(err)) return res.status(409).json({ message: 'El correo ya está registrado' });
 		res.status(400).json({ message: 'No se pudo crear la cuenta' });
 	}
 });
@@ -133,16 +132,16 @@ router.get('/borrador', authUser, async (req, res) => {
 router.patch('/:id', authUser, validate(schemas.draftPatchSchema), async (req, res) => {
 	try {
 		if (req.user.id !== req.params.id) return res.status(403).json({ message: 'No autorizado' });
-		const current = await Usuario.findById(req.params.id).select('estado');
+		const current = await Usuario.findById(req.params.id);
 		if (!current) return res.status(404).json({ message: 'No encontrado' });
 		if (current.estado !== 'borrador') {
 			return res.status(409).json({ message: 'La solicitud ya fue enviada. Usa "actualizar" para cambios.' });
 		}
-		const update = await Usuario.findByIdAndUpdate(req.params.id, { $set: req.body }, { new: true });
+		const update = await Usuario.updateById(req.params.id, req.body);
 		res.json({ usuario: update, guardado: true });
 	} catch (err) {
 		req.log && req.log.error({ err }, 'autosave failed');
-		if (err.code === 11000) return res.status(409).json({ message: 'El correo ya está registrado' });
+		if (isUniqueViolation(err)) return res.status(409).json({ message: 'El correo ya está registrado' });
 		res.status(400).json({ message: 'No se pudo guardar' });
 	}
 });
@@ -177,7 +176,7 @@ router.post('/:id/enviar', authUser, async (req, res) => {
 			fechaEnvio: new Date(),
 			fechaConsentimiento: doc.fechaConsentimiento || new Date(),
 		};
-		const saved = await Usuario.findByIdAndUpdate(req.params.id, { $set: set }, { new: true });
+		const saved = await Usuario.updateById(req.params.id, set);
 
 		// Fire-and-forget: a slow/failing SMTP send must not block or fail submission.
 		sendEmail(saved._id).catch(err => req.log && req.log.error({ err }, 'verification email failed'));
@@ -214,7 +213,7 @@ router.post('/', registerLimiter, validate(schemas.registerSchema), async (req, 
 		res.json({ usuario: saved, csrfToken: csrf, ...completionPayload(saved) });
 	} catch (err) {
 		req.log && req.log.error({ err }, 'register failed');
-		if (err.code === 11000) return res.status(409).json({ message: 'El correo ya está registrado' });
+		if (isUniqueViolation(err)) return res.status(409).json({ message: 'El correo ya está registrado' });
 		res.status(400).json({ message: 'No se pudo completar el registro' });
 	}
 });
@@ -245,7 +244,7 @@ router.post('/subir-archivos', authUser, async (req, res) => {
 
 		const blobName = `${req.user.id}/${new Date().toISOString()}.zip`;
 		await uploadZip(blobName, buffer);
-		await Usuario.findByIdAndUpdate(req.user.id, { archivoBlob: blobName });
+		await Usuario.updateById(req.user.id, { archivoBlob: blobName });
 
 		writeAudit(req, { action: 'docs.upload', actorType: 'user', actorId: req.user.id, outcome: 'success' });
 		res.json({ message: 'Documentos subidos', archivos: files.length });
@@ -262,7 +261,7 @@ router.get('/link-archivos/:id', authUser, async (req, res) => {
 		if (req.user.role !== 'admin' && req.user.id !== req.params.id)
 			return res.status(403).json({ message: 'No autorizado' });
 
-		const user = await Usuario.findById(req.params.id).select('archivoBlob');
+		const user = await Usuario.findById(req.params.id);
 		if (!user || !user.archivoBlob) return res.status(404).json({ message: 'Sin documentos' });
 
 		writeAudit(req, { action: 'docs.access', actorType: req.user.role, actorId: req.user.id, target: req.params.id });
@@ -303,19 +302,19 @@ router.put('/actualizar', authUser, validate(schemas.updateSchema), async (req, 
 			set.password = await bcrypt.hash(body.password, 10);
 		}
 
-		const update = await Usuario.findByIdAndUpdate(body._id, { $set: set }, { new: true });
+		const update = await Usuario.updateById(body._id, set);
 		writeAudit(req, { action: 'user.update', actorType: req.user.role, actorId: req.user.id, target: body._id, outcome: 'success' });
 		res.json({ update });
 	} catch (err) {
 		req.log && req.log.error({ err }, 'actualizar failed');
-		if (err.code === 11000) return res.status(409).json({ message: 'El correo ya está registrado' });
+		if (isUniqueViolation(err)) return res.status(409).json({ message: 'El correo ya está registrado' });
 		res.status(400).json({ message: 'No se pudo actualizar' });
 	}
 });
 
 router.post('/comprobar-mail', validate(schemas.emailSchema), async (req, res) => {
 	try {
-		const exists = await Usuario.exists({ correoElectronico: req.body.mail });
+		const exists = await Usuario.emailExists(req.body.mail);
 		// Surface a typo suggestion ("¿quisiste decir gmail.com?") alongside availability (§3).
 		res.json({ disponible: !exists, sugerencia: suggestEmail(req.body.mail) });
 	} catch (err) {
@@ -327,7 +326,7 @@ router.post('/comprobar-mail', validate(schemas.emailSchema), async (req, res) =
 router.delete('/:id', authAdmin, async (req, res) => {
 	try {
 		if (!isValidId(req.params.id)) return res.status(404).json({ message: 'No encontrado' });
-		const user = await Usuario.findByIdAndDelete(req.params.id);
+		const user = await Usuario.deleteById(req.params.id);
 		if (user && user.archivoBlob) await deleteBlob(user.archivoBlob); // don't orphan PII docs (§3.3)
 		writeAudit(req, { action: 'user.delete', actorType: 'admin', actorId: req.user.id, target: req.params.id, outcome: user ? 'success' : 'not_found' });
 		res.json({ message: 'Eliminado', user });

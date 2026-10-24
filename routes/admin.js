@@ -1,11 +1,9 @@
 const express = require("express");
 const router = express.Router();
-const mongoose = require("mongoose");
 const Usuario = require("../models/modeloUsuario");
+const { isValidObjectId: isValidId } = require("../db/objectId");
 const bcrypt = require("bcrypt");
 const xl = require("excel4node");
-
-const isValidId = (id) => mongoose.isValidObjectId(id);
 
 const { sendEmailAdmin, sendEmail } = require("../functions/sendEmail");
 const { issueSession, clearSession, authAdmin } = require("../middlewares/session");
@@ -49,19 +47,19 @@ router.get("/me", authAdmin, (req, res) => {
 router.post("/respuesta", authAdmin, validate(schemas.respuestaSchema), async (req, res) => {
   try {
     const { emailUsuario, estado, mensajeMedico } = req.body;
-    const user = await Usuario.findOne({ correoElectronico: emailUsuario });
+    const user = await Usuario.findByEmail(emailUsuario);
     if (!user) return res.status(404).json({ message: "Usuario no encontrado" });
 
     if (estado === "aceptado") {
       // Keep an existing passport number; otherwise allocate atomically (§5.1).
       const numero = user.numeroPasaporte >= 1000 ? user.numeroPasaporte : await nextPassporte();
-      await Usuario.updateOne({ _id: user._id }, { $set: { estado: "aceptado", numeroPasaporte: numero } });
+      await Usuario.updateById(user._id, { estado: "aceptado", numeroPasaporte: numero });
       // Pre-render the passport so the user's first download is instant.
       user.estado = "aceptado";
       user.numeroPasaporte = numero;
       warmPassport(user);
     } else {
-      await Usuario.updateOne({ _id: user._id }, { $set: { estado, mensajeMedico: mensajeMedico || "" } });
+      await Usuario.updateById(user._id, { estado, mensajeMedico: mensajeMedico || "" });
     }
 
     // Fire-and-forget: don't block the admin response on a slow SMTP round-trip.
@@ -83,8 +81,8 @@ router.post("/solicitudes", authAdmin, validate(schemas.solicitudesSchema), asyn
         ? {}
         : req.body.condicion
           ? { estado: req.body.condicion }
-          : { estado: { $ne: "borrador" } };
-    const usuarios = await Usuario.find(filter).sort({ fechaCreacion: -1 });
+          : { estadoNot: "borrador" };
+    const usuarios = await Usuario.find(filter, { sort: "newest" });
     res.json(usuarios);
   } catch (err) {
     req.log && req.log.error({ err }, "solicitudes failed");
@@ -101,31 +99,26 @@ router.post("/modificarSolicitud", authAdmin, validate(schemas.modificarSchema),
     let numero = m.numeroPasaporte != null ? m.numeroPasaporte : user.numeroPasaporte;
     if (numero == null || numero < 1000) numero = await nextPassporte();
 
-    await Usuario.updateOne(
-      { _id: m.id },
-      {
-        $set: {
-          nombre: m.nombre,
-          apellidos: m.apellidos,
-          correoElectronico: m.correoElectronico,
-          fechaNacimiento: new Date(m.fechaNacimiento),
-          localidadResidencia: m.localidadResidencia,
-          lugarNacimiento: m.lugarNacimiento,
-          numeroDocumento: m.numeroDocumento,
-          numeroTelefono: m.numeroTelefono,
-          paisResidencia: m.paisResidencia,
-          diagnostico: {
-            dislexia: !!m.dislexia,
-            discalculia: !!m.discalculia,
-            disortografía: !!m.disortografía,
-            dispraxia: !!m.dispraxia,
-            tdah: !!m.tdah,
-          },
-          estado: "aceptado",
-          numeroPasaporte: numero,
-        },
-      }
-    );
+    await Usuario.updateById(m.id, {
+      nombre: m.nombre,
+      apellidos: m.apellidos,
+      correoElectronico: m.correoElectronico,
+      fechaNacimiento: new Date(m.fechaNacimiento),
+      localidadResidencia: m.localidadResidencia,
+      lugarNacimiento: m.lugarNacimiento,
+      numeroDocumento: m.numeroDocumento,
+      numeroTelefono: m.numeroTelefono,
+      paisResidencia: m.paisResidencia,
+      diagnostico: {
+        dislexia: !!m.dislexia,
+        discalculia: !!m.discalculia,
+        disortografía: !!m.disortografía,
+        dispraxia: !!m.dispraxia,
+        tdah: !!m.tdah,
+      },
+      estado: "aceptado",
+      numeroPasaporte: numero,
+    });
     // Pre-render the updated passport (fresh doc) so the first download is instant.
     Usuario.findById(m.id).then(u => u && warmPassport(u)).catch(() => {});
     writeAudit(req, { action: "admin.modificar", actorType: "admin", target: String(m.id), outcome: "success" });
@@ -162,7 +155,7 @@ router.post("/solicitudes/:id", authAdmin, async (req, res) => {
 
 router.get("/excel", authAdmin, async (req, res) => {
   try {
-    const usuarios = await Usuario.find({ estado: { $ne: "borrador" } });
+    const usuarios = await Usuario.find({ estadoNot: "borrador" });
     const wb = new xl.Workbook();
     const ws = wb.addWorksheet("Sheet 1");
     const headerStyle = wb.createStyle({ font: { bold: true } });

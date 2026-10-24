@@ -1,76 +1,147 @@
-const mongoose = require("mongoose");
+// Users (`usuarios` table). Replaces the Mongoose model with explicit queries that keep
+// the old behaviour: same ids, same JSON (db/usuarioJson.js), same matching and ordering.
+//
+// Records come back as plain objects shaped like the old Mongoose documents: the API
+// fields, `_id`, a non-enumerable `id`, the `password` hash (code only), and a toJSON()
+// that leaves the hash out, so res.json(user) returns exactly what it did before.
+const { getPrisma, wrap, DbError, isNotFound } = require('../db/prisma');
+const { castObjectId, newObjectId } = require('../db/objectId');
+const { rowToJson, toData } = require('../db/usuarioJson');
 
-// Field-level `required` is intentionally NOT enforced on the application fields: a
-// `borrador` (draft) record is created from just email + password and filled in
-// progressively (REGISTRATION_UX.md §1). Completeness is validated by Zod (submitSchema)
-// at the moment of submission, not by Mongoose on every partial autosave. Email is the
-// one hard invariant (account identity), so it keeps required + unique.
-const Usuario = mongoose.Schema({
-    nombre: { type: String },
-    apellidos: { type: String },
-    paisResidencia: { type: String },
-    localidadResidencia: { type: String },
-    lugarNacimiento: { type: String },
-    // dni | nie | pasaporte — drives the checksum validation in validation/identity.js.
-    tipoDocumento: { type: String, enum: ["dni", "nie", "pasaporte", null], default: null },
-    numeroDocumento: { type: String },
-    fechaNacimiento: { type: Date },
-    correoElectronico: {
-        type: String,
-        required: true,
-        trim: true,
-        lowercase: true,
-        index: true,
-        unique: true,
-    },
-    numeroTelefono: { type: String }, // stored E.164 (e.g. +34600123123)
-    diagnostico: {
-        dislexia: { type: Boolean, default: false },
-        discalculia: { type: Boolean, default: false },
-        disortografía: { type: Boolean, default: false },
-        dispraxia: { type: Boolean, default: false },
-        tdah: { type: Boolean, default: false },
-    },
-    // Guardian / minor branch (§0): a parent/guardian applying on behalf of a child.
-    esTutor: { type: Boolean, default: false },
-    tutorNombre: { type: String, default: "" },
-    tutorApellidos: { type: String, default: "" },
-    tutorParentesco: { type: String, default: "" },
-    password: { type: String, required: true },
-    // hasta acá
-    emailVerificado: { type: Boolean, default: false },
-    fechaCreacion: { type: Date, required: true },
-    // borrador = incomplete draft (excluded from review queues); pendiente = submitted.
-    estado: { type: String, default: "borrador" },
-    mensajeMedico: { type: String, default: "" },
-    numeroPasaporte: { type: Number, default: -1 },
-    aceptoRecibirInfo: { type: Boolean, default: false },
-    // Persist the privacy-policy consent that the form already collects (§5.5/§8.2).
-    aceptoSolicitud: { type: Boolean, default: false },
-    fechaConsentimiento: { type: Date, default: null },
-    // When the applicant submitted the completed application for review (§7).
-    fechaEnvio: { type: Date, default: null },
-    // Server-side pointer to the uploaded-documents blob (replaces email-substring
-    // enumeration in link-archivos, §6.1). Set on upload.
-    archivoBlob: { type: String, default: "" },
-});
+const db = () => getPrisma().usuario;
 
-// Enforce passport-number uniqueness for issued passports only (>= 1000), so the many
-// default -1 records don't collide (§5.1).
-Usuario.index(
-    { numeroPasaporte: 1 },
-    { unique: true, partialFilterExpression: { numeroPasaporte: { $gte: 1000 } } }
-);
-
-// Never serialize the password hash (or internal fields) to any client. This strips
-// it from every res.json(usuarioDoc) in one place (SECURITY_ASSESSMENT.md §2.2).
-// The hash is still readable in code (e.g. for bcrypt.compare); only JSON output is filtered.
-const stripSensitive = (doc, ret) => {
-    delete ret.password;
-    delete ret.__v;
-    return ret;
+const toUsuario = row => {
+	if (!row) return null;
+	const doc = { ...rowToJson(row), password: row.password };
+	Object.defineProperties(doc, {
+		id: {
+			get() {
+				return this._id;
+			},
+		},
+		toJSON: {
+			value() {
+				const out = { ...this };
+				delete out.password;
+				return out;
+			},
+		},
+	});
+	return doc;
 };
-Usuario.set("toJSON", { transform: stripSensitive });
-Usuario.set("toObject", { transform: stripSensitive });
 
-module.exports = mongoose.model("usuario", Usuario);
+// MongoDB returned unsorted matches, and sort ties, in insertion order (`orden`).
+const NATURAL = [{ orden: 'asc' }];
+// sort({ fechaCreacion: -1 }): MongoDB puts missing dates last.
+const NEWEST_FIRST = [{ fechaCreacion: { sort: 'desc', nulls: 'last' } }, { orden: 'asc' }];
+
+// Filters the routes use: {} (all), { estado } (equal), { estadoNot } (MongoDB's $ne, which
+// also matched records without an estado).
+const whereOf = (filter = {}) => {
+	if (filter.estado !== undefined) return { estado: filter.estado };
+	if (filter.estadoNot !== undefined) return { OR: [{ estado: { not: filter.estadoNot } }, { estado: null }] };
+	return {};
+};
+
+const isInt4 = n => Number.isInteger(n) && n >= -2147483648 && n <= 2147483647;
+
+// Throws CastError for an id that isn't an ObjectId string, as Mongoose did.
+const findById = async id => {
+	const key = castObjectId(id);
+	if (key == null) return null;
+	return toUsuario(await wrap('usuarios.findById', db().findUnique({ where: { id: key } })));
+};
+
+// Emails are matched trimmed and lowercased (Mongoose applied the schema setters to queries).
+const findByEmail = async email => {
+	if (typeof email !== 'string') return null;
+	const correoElectronico = email.trim().toLowerCase();
+	return toUsuario(await wrap('usuarios.findByEmail', db().findUnique({ where: { correoElectronico } })));
+};
+
+// First record with this passport number (and estado, if given). A number that isn't a
+// 32-bit integer matches nothing, as in MongoDB (Postgres would reject it instead).
+const findByPassportNumber = async (numeroPasaporte, estado) => {
+	if (!isInt4(numeroPasaporte)) return null;
+	const where = { numeroPasaporte };
+	if (estado !== undefined) where.estado = estado;
+	return toUsuario(await wrap('usuarios.findByPassportNumber', db().findFirst({ where, orderBy: NATURAL })));
+};
+
+// { sort: 'newest' } = sort({ fechaCreacion: -1 }); default is insertion order.
+const find = async (filter, { sort, skip, limit } = {}) => {
+	const rows = await wrap(
+		'usuarios.find',
+		db().findMany({
+			where: whereOf(filter),
+			orderBy: sort === 'newest' ? NEWEST_FIRST : NATURAL,
+			skip: skip || undefined,
+			take: limit || undefined,
+		})
+	);
+	return rows.map(toUsuario);
+};
+
+const count = filter => wrap('usuarios.count', db().count({ where: whereOf(filter) }));
+
+const emailExists = async email => {
+	if (typeof email !== 'string') return false;
+	const correoElectronico = email.trim().toLowerCase();
+	const row = await wrap('usuarios.emailExists', db().findUnique({ where: { correoElectronico }, select: { id: true } }));
+	return Boolean(row);
+};
+
+const create = async values =>
+	toUsuario(await wrap('usuarios.create', db().create({ data: { ...toData(values), id: newObjectId() } })));
+
+// findByIdAndUpdate(id, { $set: values }, { new: true }): the updated record, or null.
+const updateById = async (id, values) => {
+	const key = castObjectId(id);
+	if (key == null) return null;
+	try {
+		return toUsuario(await db().update({ where: { id: key }, data: toData(values) }));
+	} catch (err) {
+		if (isNotFound(err)) return null;
+		throw new DbError('usuarios.update', err);
+	}
+};
+
+// findByIdAndDelete(id): the deleted record, or null.
+const deleteById = async id => {
+	const key = castObjectId(id);
+	if (key == null) return null;
+	try {
+		return toUsuario(await db().delete({ where: { id: key } }));
+	} catch (err) {
+		if (isNotFound(err)) return null;
+		throw new DbError('usuarios.delete', err);
+	}
+};
+
+// doc.save() after changing some fields. Mongoose validated the whole document first, so
+// a record missing a required field (records older than fechaCreacion lack it) could not
+// be saved; keep that outcome.
+const save = async (doc, values) => {
+	for (const field of ['correoElectronico', 'password', 'fechaCreacion']) {
+		if (doc[field] == null || doc[field] === '') {
+			const err = new Error(`Validation failed: ${field} is required`);
+			err.name = 'ValidationError';
+			throw err;
+		}
+	}
+	return updateById(doc._id, values);
+};
+
+module.exports = {
+	findById,
+	findByEmail,
+	findByPassportNumber,
+	find,
+	count,
+	emailExists,
+	create,
+	updateById,
+	deleteById,
+	save,
+	toUsuario,
+};
