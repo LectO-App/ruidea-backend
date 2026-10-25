@@ -133,8 +133,14 @@ const loginSchema = z.object({ user: str.min(1).max(254), password: str.min(1).m
 
 const adminLoginSchema = z.object({ user: str.min(1).max(120), password: str.min(1).max(200) }).strip();
 
+// documento is required by the route (a clear 400 when missing); optional here so the
+// schema keeps accepting the old body shape and the route answers it, not zod.
 const verifyCheckSchema = z
-	.object({ pasaporte: z.coerce.number().int().positive(), password: str.max(200).optional() })
+	.object({
+		pasaporte: z.coerce.number().int().positive(),
+		documento: str.max(60).optional(),
+		password: str.max(200).optional(),
+	})
 	.strip();
 
 const forgotPasswordSchema = z.object({ email }).strip();
