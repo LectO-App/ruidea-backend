@@ -18,4 +18,10 @@ const signToken = (payload, options = { expiresIn: '12h' }) => jwt.sign(payload,
 // the payload of an expired token (used by the email-verify resend flow).
 const verifyToken = (token, options = {}) => jwt.verify(token, JWT_SECRET, options);
 
-module.exports = { signToken, verifyToken };
+// The account tokenVersion a session or password-reset token was issued with (claim `tv`).
+// Tokens issued before the claim existed don't carry it and count as version 0, the value
+// every account starts with, so they keep working until the account's first password
+// change or logout.
+const tokenVersionClaim = payload => (Number.isInteger(payload && payload.tv) ? payload.tv : 0);
+
+module.exports = { signToken, verifyToken, tokenVersionClaim };
