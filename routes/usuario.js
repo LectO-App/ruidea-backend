@@ -16,7 +16,7 @@ const schemas = require('../validation/schemas');
 const { resolveVerifier } = require('../functions/verifier');
 const { writeAudit } = require('../functions/audit');
 const { getPassport } = require('../functions/passportRender');
-const { deleteBlob } = require('../functions/blob');
+const { deleteUserDocuments, logBlobError } = require('../functions/blob');
 
 const { sendPasswordResetEmail } = require('../functions/sendEmail');
 
@@ -201,7 +201,9 @@ router.delete('/:id', authAdmin, async (req, res) => {
 	if (!isValidId(req.params.id)) return res.status(404).json({ message: 'Usuario no encontrado' });
 	try {
 		const user = await Usuario.deleteById(req.params.id);
-		if (user && user.archivoBlob) await deleteBlob(user.archivoBlob);
+		// Every upload of this person goes, not only the current zip.
+		const docs = user ? await deleteUserDocuments(user._id, user.archivoBlob) : null;
+		if (docs && docs.failed) logBlobError(req, docs.error, 'user documents not fully deleted', { failed: docs.failed });
 		writeAudit(req, { action: 'user.delete', actorType: 'admin', actorId: req.user.id, target: req.params.id, outcome: user ? 'success' : 'not_found' });
 		res.json({ message: 'Eliminado!', user });
 	} catch (err) {
