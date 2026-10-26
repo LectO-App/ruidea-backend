@@ -13,7 +13,7 @@ const { issueSession, clearSession, authUser, authAdmin } = require('../middlewa
 const { emailLimiter, authLimiter, verifyLimiter } = require('../middlewares/rate-limit');
 const { validate } = require('../middlewares/validate');
 const schemas = require('../validation/schemas');
-const { resolveVerifier } = require('../functions/verifier');
+const { resolveVerifier, verifierKeyQuota } = require('../functions/verifier');
 const { writeAudit } = require('../functions/audit');
 const { getPassport } = require('../functions/passportRender');
 const { deleteBlob } = require('../functions/blob');
@@ -25,6 +25,14 @@ const safeEqual = (a, b) => {
 	const ha = crypto.createHash('sha256').update(a).digest();
 	const hb = crypto.createHash('sha256').update(b).digest();
 	return crypto.timingSafeEqual(ha, hb);
+};
+
+// Document numbers match ignoring case, spaces, dots and dashes: a verifier who types
+// "40111222" or "12345678z" from an ID card matches "40.111.222" / "12345678Z" as stored.
+const docKey = v => String(v == null ? '' : v).toUpperCase().replace(/[\s.-]/g, '');
+const sameDocumento = (stored, given) => {
+	const key = docKey(stored);
+	return key.length > 0 && key === docKey(given);
 };
 
 // Minimal public projection for a share link — never the whole document (§1.6, §2.2).
@@ -46,7 +54,7 @@ router.post('/verificar/:numeroDocumento/:numeroPasaporte', verifyLimiter, async
 	if (!Number.isFinite(numeroPasaporte)) return res.json({ existe: false });
 
 	const usuario = await Usuario.findByPassportNumber(numeroPasaporte, 'aceptado');
-	const ok = usuario && usuario.numeroDocumento == req.params.numeroDocumento;
+	const ok = usuario && sameDocumento(usuario.numeroDocumento, req.params.numeroDocumento);
 	writeAudit(req, {
 		action: 'passport.verify_link',
 		target: String(numeroPasaporte),
@@ -56,36 +64,61 @@ router.post('/verificar/:numeroDocumento/:numeroPasaporte', verifyLimiter, async
 	res.json({ existe: true, usuario: publicView(usuario) });
 });
 
-// Passport-number -> document lookup. Authorized by a per-verifier API key (preferred)
-// or the legacy shared password (constant-time). Identical response for wrong-credential
-// and not-found so neither is probeable; every attempt audited (§1.8, §10.4, §11.1).
-router.post('/verificarCheckPassword', verifyLimiter, validate(schemas.verifyCheckSchema), async (req, res) => {
-	const { pasaporte, password } = req.body;
+// Who is asking: a per-verifier API key (X-Verifier-Key, preferred) or the legacy shared
+// password (constant-time). Sets req.verifier for a key, so verifierKeyQuota can count it.
+const verifierCredential = async (req, res, next) => {
+	if (!docKey(req.body.documento)) {
+		return res.status(400).json({ correcto: false, message: 'Indica el número de documento del titular.' });
+	}
 	try {
-		const verifier = await resolveVerifier(req);
-		const sharedOk = password && process.env.VERIFY_PASSWORD && safeEqual(password, process.env.VERIFY_PASSWORD);
-
-		if (!verifier && !sharedOk) {
-			writeAudit(req, { action: 'passport.lookup', outcome: 'denied', actorType: 'verifier' });
-			return res.status(401).json({ correcto: false });
-		}
-
-		const usuario = await Usuario.findByPassportNumber(pasaporte, 'aceptado');
-		writeAudit(req, {
-			action: 'passport.lookup',
-			actorType: verifier ? 'verifier' : 'anonymous',
-			actorId: verifier ? verifier.id : 'shared',
-			target: String(pasaporte),
-			outcome: usuario ? 'success' : 'not_found',
-		});
-
-		if (!usuario) return res.status(401).json({ correcto: false });
-		res.json({ correcto: true, documento: usuario.numeroDocumento, existe: true });
+		req.verifier = await resolveVerifier(req);
 	} catch (err) {
 		req.log && req.log.error({ err }, 'verificarCheckPassword failed');
-		res.status(401).json({ correcto: false });
+		return res.status(401).json({ correcto: false });
 	}
-});
+	const { password } = req.body;
+	const sharedOk = password && process.env.VERIFY_PASSWORD && safeEqual(password, process.env.VERIFY_PASSWORD);
+	if (!req.verifier && !sharedOk) {
+		writeAudit(req, { action: 'passport.lookup', outcome: 'denied', actorType: 'verifier' });
+		return res.status(401).json({ correcto: false });
+	}
+	next();
+};
+
+// Verifier check: does this passport number belong to this document number on an accepted
+// passport? The caller presents both (from the card or its QR) and gets only yes/no; the
+// answer never carries the document number or any other field, so a credential cannot turn
+// passport numbers (issued in sequence) into document numbers. Wrong credential, unknown
+// passport and wrong document all get the same 401; every attempt is audited (§1.8, §10.4,
+// §11.1). Per-verifier keys also have an hourly quota (functions/verifier.js).
+router.post(
+	'/verificarCheckPassword',
+	verifyLimiter,
+	validate(schemas.verifyCheckSchema),
+	verifierCredential,
+	verifierKeyQuota,
+	async (req, res) => {
+		const { pasaporte, documento } = req.body;
+		const { verifier } = req;
+		try {
+			const usuario = await Usuario.findByPassportNumber(pasaporte, 'aceptado');
+			const ok = usuario && sameDocumento(usuario.numeroDocumento, documento);
+			writeAudit(req, {
+				action: 'passport.lookup',
+				actorType: verifier ? 'verifier' : 'anonymous',
+				actorId: verifier ? verifier.id : 'shared',
+				target: String(pasaporte),
+				outcome: ok ? 'success' : usuario ? 'document_mismatch' : 'not_found',
+			});
+
+			if (!ok) return res.status(401).json({ correcto: false });
+			res.json({ correcto: true, existe: true });
+		} catch (err) {
+			req.log && req.log.error({ err }, 'verificarCheckPassword failed');
+			res.status(401).json({ correcto: false });
+		}
+	}
+);
 
 // Current user's own record (replaces IDOR-prone /estado/:id fetched from a cookie id, §1.5).
 // An admin session (id "admin") is not a regular user, so this returns 404 for it.
