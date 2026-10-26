@@ -10,7 +10,7 @@ const { issueSession, authUser, authAdmin } = require('../middlewares/session');
 const { registerLimiter, emailLimiter } = require('../middlewares/rate-limit');
 const { validate } = require('../middlewares/validate');
 const schemas = require('../validation/schemas');
-const { uploadZip, sasUrl, deleteBlob } = require('../functions/blob');
+const { uploadZip, sasUrl, deleteBlob, deleteUserDocuments, logBlobError } = require('../functions/blob');
 const { writeAudit } = require('../functions/audit');
 const { suggestEmail } = require('../validation/identity');
 
@@ -242,15 +242,21 @@ router.post('/subir-archivos', authUser, async (req, res) => {
 			compressionOptions: { level: 6 },
 		});
 
+		const current = await Usuario.findById(req.user.id);
+		if (!current) return res.status(404).json({ message: 'Usuario no encontrado' });
 		const blobName = `${req.user.id}/${new Date().toISOString()}.zip`;
 		await uploadZip(blobName, buffer);
 		// New documents behind an issued passport have not been reviewed: an accepted record goes
 		// back to 'pendiente' (as PUT /actualizar does), keeping its passport number. Rejecting the
 		// upload instead would break the edit flow, which uploads before calling /actualizar.
-		const current = await Usuario.findById(req.user.id);
 		const set = { archivoBlob: blobName };
-		if (current && current.estado === 'aceptado') set.estado = 'pendiente';
+		if (current.estado === 'aceptado') set.estado = 'pendiente';
 		await Usuario.updateById(req.user.id, set);
+		// The new zip replaces the previous one. Delete the previous one so superseded ID and
+		// diagnosis documents don't stay in storage. Best-effort: a failure is logged, the upload stands.
+		if (current.archivoBlob && current.archivoBlob !== blobName) {
+			await deleteBlob(current.archivoBlob).catch(err => logBlobError(req, err, 'superseded documents not deleted'));
+		}
 
 		writeAudit(req, { action: 'docs.upload', actorType: 'user', actorId: req.user.id, outcome: 'success' });
 		res.json({ message: 'Documentos subidos', archivos: files.length });
@@ -344,7 +350,9 @@ router.delete('/:id', authAdmin, async (req, res) => {
 	try {
 		if (!isValidId(req.params.id)) return res.status(404).json({ message: 'No encontrado' });
 		const user = await Usuario.deleteById(req.params.id);
-		if (user && user.archivoBlob) await deleteBlob(user.archivoBlob); // don't orphan PII docs (§3.3)
+		// Don't orphan PII docs (§3.3): every upload of this person, not only the current zip.
+		const docs = user ? await deleteUserDocuments(user._id, user.archivoBlob) : null;
+		if (docs && docs.failed) logBlobError(req, docs.error, 'user documents not fully deleted', { failed: docs.failed });
 		writeAudit(req, { action: 'user.delete', actorType: 'admin', actorId: req.user.id, target: req.params.id, outcome: user ? 'success' : 'not_found' });
 		res.json({ message: 'Eliminado', user });
 	} catch (err) {
