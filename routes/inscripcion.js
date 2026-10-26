@@ -244,7 +244,13 @@ router.post('/subir-archivos', authUser, async (req, res) => {
 
 		const blobName = `${req.user.id}/${new Date().toISOString()}.zip`;
 		await uploadZip(blobName, buffer);
-		await Usuario.updateById(req.user.id, { archivoBlob: blobName });
+		// New documents behind an issued passport have not been reviewed: an accepted record goes
+		// back to 'pendiente' (as PUT /actualizar does), keeping its passport number. Rejecting the
+		// upload instead would break the edit flow, which uploads before calling /actualizar.
+		const current = await Usuario.findById(req.user.id);
+		const set = { archivoBlob: blobName };
+		if (current && current.estado === 'aceptado') set.estado = 'pendiente';
+		await Usuario.updateById(req.user.id, set);
 
 		writeAudit(req, { action: 'docs.upload', actorType: 'user', actorId: req.user.id, outcome: 'success' });
 		res.json({ message: 'Documentos subidos', archivos: files.length });
