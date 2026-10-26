@@ -49,6 +49,21 @@ const rawSvg = relPath => {
 	return svg;
 };
 
+// paisResidencia is free text, so it is never used as a path: the flag is only looked up
+// among the files shipped in passport-assets/flags (one per country the form offers).
+const FLAG_FILES = (() => {
+	try {
+		return new Set(fs.readdirSync(path.join(ASSETS, 'flags')).filter(name => name.endsWith('.svg')));
+	} catch (err) {
+		return new Set();
+	}
+})();
+
+const flagUriFor = pais => {
+	const file = `${pais.toLowerCase()}.svg`;
+	return FLAG_FILES.has(file) ? dataUri(`flags/${file}`, 'image/svg+xml') : ''; // unknown country -> no flag
+};
+
 const formatDate = value => {
 	const d = new Date(value);
 	if (isNaN(d.getTime())) return '';
@@ -74,7 +89,7 @@ const fontFaceCss = [400, 600, 700]
 
 const passportHtml = async user => {
 	const pais = user.paisResidencia || '';
-	const flagUri = pais ? dataUri(`flags/${pais.toLowerCase()}.svg`, 'image/svg+xml') : '';
+	const flagUri = pais ? flagUriFor(pais) : '';
 	// Inlined (not an <img>) so the SVG's font-family:Muli text resolves against the page's
 	// inlined @font-face instead of rendering in a serif fallback.
 	const logoRuidea = rawSvg('recurso2.svg').replace('<svg', '<svg class="logo-ruidea"');
