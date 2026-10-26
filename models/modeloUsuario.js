@@ -2,8 +2,9 @@
 // the old behaviour: same ids, same JSON (db/usuarioJson.js), same matching and ordering.
 //
 // Records come back as plain objects shaped like the old Mongoose documents: the API
-// fields, `_id`, a non-enumerable `id`, the `password` hash (code only), and a toJSON()
-// that leaves the hash out, so res.json(user) returns exactly what it did before.
+// fields, `_id`, a non-enumerable `id`, the `password` hash (code only), a non-enumerable
+// `tokenVersion` (code only), and a toJSON() that leaves the hash out, so res.json(user)
+// returns exactly what it did before.
 const { getPrisma, wrap, DbError, isNotFound } = require('../db/prisma');
 const { castObjectId, newObjectId } = require('../db/objectId');
 const { rowToJson, toData, normalizeEmail } = require('../db/usuarioJson');
@@ -19,6 +20,7 @@ const toUsuario = row => {
 				return this._id;
 			},
 		},
+		tokenVersion: { value: row.tokenVersion || 0 },
 		toJSON: {
 			value() {
 				const out = { ...this };
@@ -130,7 +132,7 @@ const deleteById = async id => {
 // doc.save() after changing some fields. Mongoose validated the whole document first, so
 // a record missing a required field (records older than fechaCreacion lack it) could not
 // be saved; keep that outcome.
-const save = async (doc, values) => {
+const assertSavable = doc => {
 	for (const field of ['correoElectronico', 'password', 'fechaCreacion']) {
 		if (doc[field] == null || doc[field] === '') {
 			const err = new Error(`Validation failed: ${field} is required`);
@@ -138,7 +140,50 @@ const save = async (doc, values) => {
 			throw err;
 		}
 	}
+};
+
+const save = async (doc, values) => {
+	assertSavable(doc);
 	return updateById(doc._id, values);
+};
+
+// tokenVersion: session and password-reset tokens carry the value they were issued with
+// (middlewares/session.js). The current value, or null when there is no such record.
+const tokenVersionOf = async id => {
+	const key = castObjectId(id);
+	if (key == null) return null;
+	const row = await wrap('usuarios.tokenVersionOf', db().findUnique({ where: { id: key }, select: { tokenVersion: true } }));
+	return row ? row.tokenVersion || 0 : null;
+};
+
+// Increments tokenVersion, which ends every session issued before. Returns the new value,
+// or null when there is no such record.
+const bumpTokenVersion = async id => {
+	const key = castObjectId(id);
+	if (key == null) return null;
+	try {
+		const row = await db().update({ where: { id: key }, data: { tokenVersion: { increment: 1 } }, select: { tokenVersion: true } });
+		return row.tokenVersion;
+	} catch (err) {
+		if (isNotFound(err)) return null;
+		throw new DbError('usuarios.bumpTokenVersion', err);
+	}
+};
+
+// Password reset: sets the new hash and increments tokenVersion in one statement, only if
+// tokenVersion still equals `expectedVersion` (the value the reset link was issued with).
+// Returns false when it no longer does, i.e. the link was already used. Like save(), a
+// record missing a required field can't be changed.
+const resetPassword = async (doc, hash, expectedVersion) => {
+	assertSavable(doc);
+	const { count } = await wrap(
+		'usuarios.resetPassword',
+		db().updateMany({
+			where: { id: castObjectId(doc._id), tokenVersion: expectedVersion },
+			data: { password: hash, tokenVersion: { increment: 1 } },
+		})
+	);
+	return count === 1;
 };
 
 module.exports = {
@@ -153,5 +198,8 @@ module.exports = {
 	updateById,
 	deleteById,
 	save,
+	tokenVersionOf,
+	bumpTokenVersion,
+	resetPassword,
 	toUsuario,
 };

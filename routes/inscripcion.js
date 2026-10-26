@@ -309,8 +309,17 @@ router.put('/actualizar', authUser, validate(schemas.updateSchema), async (req, 
 		}
 
 		const update = await Usuario.updateById(body._id, set);
+		// A new password ends the account's existing sessions (tokenVersion). The owner's own
+		// session is reissued so they stay signed in; the SPA picks up the new csrfToken.
+		let csrfToken;
+		if (set.password && update) {
+			const tokenVersion = await Usuario.bumpTokenVersion(body._id);
+			if (req.user.id === body._id && tokenVersion != null) {
+				csrfToken = issueSession(res, { id: body._id, role: 'user', tokenVersion });
+			}
+		}
 		writeAudit(req, { action: 'user.update', actorType: req.user.role, actorId: req.user.id, target: body._id, outcome: 'success' });
-		res.json({ update });
+		res.json(csrfToken ? { update, csrfToken } : { update });
 	} catch (err) {
 		req.log && req.log.error({ err }, 'actualizar failed');
 		if (isUniqueViolation(err)) return res.status(409).json({ message: 'El correo ya está registrado' });

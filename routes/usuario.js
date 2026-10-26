@@ -8,8 +8,8 @@ const Usuario = require('../models/modeloUsuario');
 // Guards against CastError crashes: a non-ObjectId id (e.g. the admin session's "admin")
 // must yield a clean 4xx, never an unhandled rejection that takes down the process.
 const { isValidObjectId: isValidId } = require('../db/objectId');
-const { verifyToken } = require('../functions/tokens');
-const { issueSession, clearSession, authUser, authAdmin } = require('../middlewares/session');
+const { verifyToken, tokenVersionClaim } = require('../functions/tokens');
+const { issueSession, endSession, authUser, authAdmin } = require('../middlewares/session');
 const { emailLimiter, authLimiter, verifyLimiter } = require('../middlewares/rate-limit');
 const { validate } = require('../middlewares/validate');
 const schemas = require('../validation/schemas');
@@ -152,7 +152,7 @@ router.post('/login', authLimiter, validate(schemas.loginSchema), async (req, re
 			return res.status(401).json({ correcto: false });
 		}
 
-		const csrf = issueSession(res, { id: String(usuario._id), role: 'user' });
+		const csrf = issueSession(res, { id: String(usuario._id), role: 'user', tokenVersion: usuario.tokenVersion });
 		writeAudit(req, { action: 'user.login', actorType: 'user', actorId: String(usuario._id), outcome: 'success' });
 		res.json({ correcto: true, usuario, csrfToken: csrf });
 	} catch (err) {
@@ -161,9 +161,15 @@ router.post('/login', authLimiter, validate(schemas.loginSchema), async (req, re
 	}
 });
 
-router.post('/logout', (req, res) => {
-	clearSession(res);
-	res.json({ ok: true });
+// Ends every session of the account, not only this cookie (middlewares/session.js).
+router.post('/logout', async (req, res) => {
+	try {
+		await endSession(req, res);
+		res.json({ ok: true });
+	} catch (err) {
+		req.log && req.log.error({ err }, 'logout failed');
+		res.status(500).json({ message: 'Error interno' });
+	}
 });
 
 router.get('/count', authAdmin, async (req, res) => {
@@ -200,7 +206,7 @@ router.post('/forgot-password', emailLimiter, validate(schemas.forgotPasswordSch
 	const generic = () => res.send('Si el correo está registrado, enviaremos un email de cambio de contraseña.');
 	try {
 		const user = await Usuario.findByEmail(req.body.email);
-		if (user) await sendPasswordResetEmail(req.body.email, user._id);
+		if (user) await sendPasswordResetEmail(req.body.email, user._id, user.tokenVersion);
 		writeAudit(req, { action: 'user.forgot_password', outcome: user ? 'success' : 'not_found' });
 		generic();
 	} catch (err) {
@@ -220,7 +226,13 @@ router.post('/change-password', authLimiter, validate(schemas.changePasswordSche
 		const user = await Usuario.findById(payload.id);
 		if (!user) return res.status(400).json({ message: 'Token inválido.' });
 
-		await Usuario.save(user, { password: await bcrypt.hash(password, 10) });
+		// Single use: the link carries the account's tokenVersion from when it was sent, and
+		// setting the password increments it (atomically, so two concurrent uses can't both
+		// pass). That also ends every existing session of the account.
+		const linkVersion = tokenVersionClaim(payload);
+		if (linkVersion !== user.tokenVersion) return res.status(400).json({ message: 'Token inválido.' });
+		const changed = await Usuario.resetPassword(user, await bcrypt.hash(password, 10), linkVersion);
+		if (!changed) return res.status(400).json({ message: 'Token inválido.' });
 		writeAudit(req, { action: 'user.change_password', actorId: String(user._id), outcome: 'success' });
 		res.json({ correcto: true });
 	} catch (err) {
