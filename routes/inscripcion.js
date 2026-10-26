@@ -7,7 +7,7 @@ const Usuario = require('../models/modeloUsuario');
 const { isValidObjectId: isValidId } = require('../db/objectId');
 const { isUniqueViolation } = require('../db/prisma');
 const { issueSession, authUser, authAdmin } = require('../middlewares/session');
-const { registerLimiter } = require('../middlewares/rate-limit');
+const { registerLimiter, emailLimiter } = require('../middlewares/rate-limit');
 const { validate } = require('../middlewares/validate');
 const schemas = require('../validation/schemas');
 const { uploadZip, sasUrl, deleteBlob } = require('../functions/blob');
@@ -312,7 +312,9 @@ router.put('/actualizar', authUser, validate(schemas.updateSchema), async (req, 
 	}
 });
 
-router.post('/comprobar-mail', validate(schemas.emailSchema), async (req, res) => {
+// Answers whether an address is registered, so it gets the same per-IP limit as the other
+// unauthenticated email endpoints (forgot-password, resend).
+router.post('/comprobar-mail', emailLimiter, validate(schemas.emailSchema), async (req, res) => {
 	try {
 		const exists = await Usuario.emailExists(req.body.mail);
 		// Surface a typo suggestion ("¿quisiste decir gmail.com?") alongside availability (§3).
