@@ -8,12 +8,12 @@ const Usuario = require('../models/modeloUsuario');
 // Guards against CastError crashes: a non-ObjectId id (e.g. the admin session's "admin")
 // must yield a clean 4xx, never an unhandled rejection that takes down the process.
 const { isValidObjectId: isValidId } = require('../db/objectId');
-const { verifyToken } = require('../functions/tokens');
-const { issueSession, clearSession, authUser, authAdmin } = require('../middlewares/session');
+const { verifyToken, tokenVersionClaim } = require('../functions/tokens');
+const { issueSession, endSession, authUser, authAdmin } = require('../middlewares/session');
 const { emailLimiter, authLimiter, verifyLimiter } = require('../middlewares/rate-limit');
 const { validate } = require('../middlewares/validate');
 const schemas = require('../validation/schemas');
-const { resolveVerifier } = require('../functions/verifier');
+const { resolveVerifier, verifierKeyQuota } = require('../functions/verifier');
 const { writeAudit } = require('../functions/audit');
 const { getPassport } = require('../functions/passportRender');
 const { deleteUserDocuments, logBlobError } = require('../functions/blob');
@@ -25,6 +25,14 @@ const safeEqual = (a, b) => {
 	const ha = crypto.createHash('sha256').update(a).digest();
 	const hb = crypto.createHash('sha256').update(b).digest();
 	return crypto.timingSafeEqual(ha, hb);
+};
+
+// Document numbers match ignoring case, spaces, dots and dashes: a verifier who types
+// "40111222" or "12345678z" from an ID card matches "40.111.222" / "12345678Z" as stored.
+const docKey = v => String(v == null ? '' : v).toUpperCase().replace(/[\s.-]/g, '');
+const sameDocumento = (stored, given) => {
+	const key = docKey(stored);
+	return key.length > 0 && key === docKey(given);
 };
 
 // Minimal public projection for a share link — never the whole document (§1.6, §2.2).
@@ -46,7 +54,7 @@ router.post('/verificar/:numeroDocumento/:numeroPasaporte', verifyLimiter, async
 	if (!Number.isFinite(numeroPasaporte)) return res.json({ existe: false });
 
 	const usuario = await Usuario.findByPassportNumber(numeroPasaporte, 'aceptado');
-	const ok = usuario && usuario.numeroDocumento == req.params.numeroDocumento;
+	const ok = usuario && sameDocumento(usuario.numeroDocumento, req.params.numeroDocumento);
 	writeAudit(req, {
 		action: 'passport.verify_link',
 		target: String(numeroPasaporte),
@@ -56,36 +64,61 @@ router.post('/verificar/:numeroDocumento/:numeroPasaporte', verifyLimiter, async
 	res.json({ existe: true, usuario: publicView(usuario) });
 });
 
-// Passport-number -> document lookup. Authorized by a per-verifier API key (preferred)
-// or the legacy shared password (constant-time). Identical response for wrong-credential
-// and not-found so neither is probeable; every attempt audited (§1.8, §10.4, §11.1).
-router.post('/verificarCheckPassword', verifyLimiter, validate(schemas.verifyCheckSchema), async (req, res) => {
-	const { pasaporte, password } = req.body;
+// Who is asking: a per-verifier API key (X-Verifier-Key, preferred) or the legacy shared
+// password (constant-time). Sets req.verifier for a key, so verifierKeyQuota can count it.
+const verifierCredential = async (req, res, next) => {
+	if (!docKey(req.body.documento)) {
+		return res.status(400).json({ correcto: false, message: 'Indica el número de documento del titular.' });
+	}
 	try {
-		const verifier = await resolveVerifier(req);
-		const sharedOk = password && process.env.VERIFY_PASSWORD && safeEqual(password, process.env.VERIFY_PASSWORD);
-
-		if (!verifier && !sharedOk) {
-			writeAudit(req, { action: 'passport.lookup', outcome: 'denied', actorType: 'verifier' });
-			return res.status(401).json({ correcto: false });
-		}
-
-		const usuario = await Usuario.findByPassportNumber(pasaporte, 'aceptado');
-		writeAudit(req, {
-			action: 'passport.lookup',
-			actorType: verifier ? 'verifier' : 'anonymous',
-			actorId: verifier ? verifier.id : 'shared',
-			target: String(pasaporte),
-			outcome: usuario ? 'success' : 'not_found',
-		});
-
-		if (!usuario) return res.status(401).json({ correcto: false });
-		res.json({ correcto: true, documento: usuario.numeroDocumento, existe: true });
+		req.verifier = await resolveVerifier(req);
 	} catch (err) {
 		req.log && req.log.error({ err }, 'verificarCheckPassword failed');
-		res.status(401).json({ correcto: false });
+		return res.status(401).json({ correcto: false });
 	}
-});
+	const { password } = req.body;
+	const sharedOk = password && process.env.VERIFY_PASSWORD && safeEqual(password, process.env.VERIFY_PASSWORD);
+	if (!req.verifier && !sharedOk) {
+		writeAudit(req, { action: 'passport.lookup', outcome: 'denied', actorType: 'verifier' });
+		return res.status(401).json({ correcto: false });
+	}
+	next();
+};
+
+// Verifier check: does this passport number belong to this document number on an accepted
+// passport? The caller presents both (from the card or its QR) and gets only yes/no; the
+// answer never carries the document number or any other field, so a credential cannot turn
+// passport numbers (issued in sequence) into document numbers. Wrong credential, unknown
+// passport and wrong document all get the same 401; every attempt is audited (§1.8, §10.4,
+// §11.1). Per-verifier keys also have an hourly quota (functions/verifier.js).
+router.post(
+	'/verificarCheckPassword',
+	verifyLimiter,
+	validate(schemas.verifyCheckSchema),
+	verifierCredential,
+	verifierKeyQuota,
+	async (req, res) => {
+		const { pasaporte, documento } = req.body;
+		const { verifier } = req;
+		try {
+			const usuario = await Usuario.findByPassportNumber(pasaporte, 'aceptado');
+			const ok = usuario && sameDocumento(usuario.numeroDocumento, documento);
+			writeAudit(req, {
+				action: 'passport.lookup',
+				actorType: verifier ? 'verifier' : 'anonymous',
+				actorId: verifier ? verifier.id : 'shared',
+				target: String(pasaporte),
+				outcome: ok ? 'success' : usuario ? 'document_mismatch' : 'not_found',
+			});
+
+			if (!ok) return res.status(401).json({ correcto: false });
+			res.json({ correcto: true, existe: true });
+		} catch (err) {
+			req.log && req.log.error({ err }, 'verificarCheckPassword failed');
+			res.status(401).json({ correcto: false });
+		}
+	}
+);
 
 // Current user's own record (replaces IDOR-prone /estado/:id fetched from a cookie id, §1.5).
 // An admin session (id "admin") is not a regular user, so this returns 404 for it.
@@ -119,7 +152,7 @@ router.post('/login', authLimiter, validate(schemas.loginSchema), async (req, re
 			return res.status(401).json({ correcto: false });
 		}
 
-		const csrf = issueSession(res, { id: String(usuario._id), role: 'user' });
+		const csrf = issueSession(res, { id: String(usuario._id), role: 'user', tokenVersion: usuario.tokenVersion });
 		writeAudit(req, { action: 'user.login', actorType: 'user', actorId: String(usuario._id), outcome: 'success' });
 		res.json({ correcto: true, usuario, csrfToken: csrf });
 	} catch (err) {
@@ -128,9 +161,15 @@ router.post('/login', authLimiter, validate(schemas.loginSchema), async (req, re
 	}
 });
 
-router.post('/logout', (req, res) => {
-	clearSession(res);
-	res.json({ ok: true });
+// Ends every session of the account, not only this cookie (middlewares/session.js).
+router.post('/logout', async (req, res) => {
+	try {
+		await endSession(req, res);
+		res.json({ ok: true });
+	} catch (err) {
+		req.log && req.log.error({ err }, 'logout failed');
+		res.status(500).json({ message: 'Error interno' });
+	}
 });
 
 router.get('/count', authAdmin, async (req, res) => {
@@ -167,7 +206,7 @@ router.post('/forgot-password', emailLimiter, validate(schemas.forgotPasswordSch
 	const generic = () => res.send('Si el correo está registrado, enviaremos un email de cambio de contraseña.');
 	try {
 		const user = await Usuario.findByEmail(req.body.email);
-		if (user) await sendPasswordResetEmail(req.body.email, user._id);
+		if (user) await sendPasswordResetEmail(req.body.email, user._id, user.tokenVersion);
 		writeAudit(req, { action: 'user.forgot_password', outcome: user ? 'success' : 'not_found' });
 		generic();
 	} catch (err) {
@@ -187,7 +226,13 @@ router.post('/change-password', authLimiter, validate(schemas.changePasswordSche
 		const user = await Usuario.findById(payload.id);
 		if (!user) return res.status(400).json({ message: 'Token inválido.' });
 
-		await Usuario.save(user, { password: await bcrypt.hash(password, 10) });
+		// Single use: the link carries the account's tokenVersion from when it was sent, and
+		// setting the password increments it (atomically, so two concurrent uses can't both
+		// pass). That also ends every existing session of the account.
+		const linkVersion = tokenVersionClaim(payload);
+		if (linkVersion !== user.tokenVersion) return res.status(400).json({ message: 'Token inválido.' });
+		const changed = await Usuario.resetPassword(user, await bcrypt.hash(password, 10), linkVersion);
+		if (!changed) return res.status(400).json({ message: 'Token inválido.' });
 		writeAudit(req, { action: 'user.change_password', actorId: String(user._id), outcome: 'success' });
 		res.json({ correcto: true });
 	} catch (err) {

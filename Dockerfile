@@ -1,4 +1,7 @@
-FROM node:20-bookworm-slim
+# Node 22.23.4 or later on the 22 line: the October 2026 Node.js security release
+# (CVE-2026-111497 Brotli decoder, TLS and DNS fixes). Node 20 is end of life and gets no fixes.
+# Pinned by digest (multi-arch index); bump tag and digest together.
+FROM node:22.23.4-bookworm-slim@sha256:de170b39439eb0e5a3444ad7d60b015614a381e10fecae2e30ec9e735122f38d
 
 # Install system Chromium (used by Puppeteer instead of a bundled download)
 RUN apt-get update && apt-get install -y \

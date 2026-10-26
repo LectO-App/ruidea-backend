@@ -223,9 +223,10 @@ const sendEmailAdmin = async (email, estado, mensajeMedico = '') => {
 	await send(email, 'Novedades sobre tu solicitud de RUIDEA', content);
 };
 
-// Password-reset message.
-const sendPasswordResetEmail = async (email, id) => {
-	const token = signToken({ id, purpose: 'password-reset' });
+// Password-reset message. The link carries the account's tokenVersion, so it works once:
+// setting the password increments it (routes/usuario.js, change-password).
+const sendPasswordResetEmail = async (email, id, tokenVersion) => {
+	const token = signToken({ id, purpose: 'password-reset', tv: tokenVersion || 0 });
 
 	await send(email, 'Cambia tu contraseña de RUIDEA', {
 		heading: 'Cambia tu contraseña',

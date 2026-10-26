@@ -7,7 +7,7 @@ const Usuario = require('../models/modeloUsuario');
 const { isValidObjectId: isValidId } = require('../db/objectId');
 const { isUniqueViolation } = require('../db/prisma');
 const { issueSession, authUser, authAdmin } = require('../middlewares/session');
-const { registerLimiter } = require('../middlewares/rate-limit');
+const { registerLimiter, emailLimiter } = require('../middlewares/rate-limit');
 const { validate } = require('../middlewares/validate');
 const schemas = require('../validation/schemas');
 const { uploadZip, sasUrl, deleteBlob, deleteUserDocuments, logBlobError } = require('../functions/blob');
@@ -246,7 +246,12 @@ router.post('/subir-archivos', authUser, async (req, res) => {
 		if (!current) return res.status(404).json({ message: 'Usuario no encontrado' });
 		const blobName = `${req.user.id}/${new Date().toISOString()}.zip`;
 		await uploadZip(blobName, buffer);
-		await Usuario.updateById(req.user.id, { archivoBlob: blobName });
+		// New documents behind an issued passport have not been reviewed: an accepted record goes
+		// back to 'pendiente' (as PUT /actualizar does), keeping its passport number. Rejecting the
+		// upload instead would break the edit flow, which uploads before calling /actualizar.
+		const set = { archivoBlob: blobName };
+		if (current.estado === 'aceptado') set.estado = 'pendiente';
+		await Usuario.updateById(req.user.id, set);
 		// The new zip replaces the previous one. Delete the previous one so superseded ID and
 		// diagnosis documents don't stay in storage. Best-effort: a failure is logged, the upload stands.
 		if (current.archivoBlob && current.archivoBlob !== blobName) {
@@ -310,8 +315,17 @@ router.put('/actualizar', authUser, validate(schemas.updateSchema), async (req, 
 		}
 
 		const update = await Usuario.updateById(body._id, set);
+		// A new password ends the account's existing sessions (tokenVersion). The owner's own
+		// session is reissued so they stay signed in; the SPA picks up the new csrfToken.
+		let csrfToken;
+		if (set.password && update) {
+			const tokenVersion = await Usuario.bumpTokenVersion(body._id);
+			if (req.user.id === body._id && tokenVersion != null) {
+				csrfToken = issueSession(res, { id: body._id, role: 'user', tokenVersion });
+			}
+		}
 		writeAudit(req, { action: 'user.update', actorType: req.user.role, actorId: req.user.id, target: body._id, outcome: 'success' });
-		res.json({ update });
+		res.json(csrfToken ? { update, csrfToken } : { update });
 	} catch (err) {
 		req.log && req.log.error({ err }, 'actualizar failed');
 		if (isUniqueViolation(err)) return res.status(409).json({ message: 'El correo ya está registrado' });
@@ -319,7 +333,9 @@ router.put('/actualizar', authUser, validate(schemas.updateSchema), async (req, 
 	}
 });
 
-router.post('/comprobar-mail', validate(schemas.emailSchema), async (req, res) => {
+// Answers whether an address is registered, so it gets the same per-IP limit as the other
+// unauthenticated email endpoints (forgot-password, resend).
+router.post('/comprobar-mail', emailLimiter, validate(schemas.emailSchema), async (req, res) => {
 	try {
 		const exists = await Usuario.emailExists(req.body.mail);
 		// Surface a typo suggestion ("¿quisiste decir gmail.com?") alongside availability (§3).

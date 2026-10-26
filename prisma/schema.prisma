@@ -61,6 +61,10 @@ model Usuario {
   /// the copy script inserts in that order and new rows come after, so lists, the Excel
   /// export and "first match" lookups keep the same order. Not part of the API.
   orden               Int       @default(autoincrement())
+  /// Session and password-reset tokens carry the value they were issued with and stop
+  /// working once it changes. Password reset, password change and logout increment it.
+  /// Not part of the API.
+  tokenVersion        Int       @default(0)
 
   @@index([numeroPasaporte])
   @@index([estado])
