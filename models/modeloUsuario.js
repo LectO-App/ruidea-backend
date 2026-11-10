@@ -3,8 +3,9 @@
 //
 // Records come back as plain objects shaped like the old Mongoose documents: the API
 // fields, `_id`, a non-enumerable `id`, the `password` hash (code only), a non-enumerable
-// `tokenVersion` (code only), and a toJSON() that leaves the hash out, so res.json(user)
-// returns exactly what it did before.
+// `tokenVersion` (code only), a non-enumerable `shareToken` (code only; /usuario/me adds it
+// for the holder), and a toJSON() that leaves the hash out, so res.json(user) returns
+// exactly what it did before.
 const { getPrisma, wrap, DbError, isNotFound } = require('../db/prisma');
 const { castObjectId, newObjectId } = require('../db/objectId');
 const { rowToJson, toData, normalizeEmail } = require('../db/usuarioJson');
@@ -21,6 +22,7 @@ const toUsuario = row => {
 			},
 		},
 		tokenVersion: { value: row.tokenVersion || 0 },
+		shareToken: { value: row.shareToken },
 		toJSON: {
 			value() {
 				const out = { ...this };
@@ -69,6 +71,19 @@ const findByPassportNumber = async (numeroPasaporte, estado) => {
 	const where = { numeroPasaporte };
 	if (estado !== undefined) where.estado = estado;
 	return toUsuario(await wrap('usuarios.findByPassportNumber', db().findFirst({ where, orderBy: NATURAL })));
+};
+
+// Share tokens are 43 base64url characters (prisma/schema.prisma). Anything else matches
+// nothing without a query.
+const SHARE_TOKEN = /^[A-Za-z0-9_-]{43}$/;
+const isShareToken = token => typeof token === 'string' && SHARE_TOKEN.test(token);
+
+// The record whose public passport page this token opens (and estado, if given).
+const findByShareToken = async (shareToken, estado) => {
+	if (!isShareToken(shareToken)) return null;
+	const where = { shareToken };
+	if (estado !== undefined) where.estado = estado;
+	return toUsuario(await wrap('usuarios.findByShareToken', db().findFirst({ where })));
 };
 
 // { sort: 'newest' } = sort({ fechaCreacion: -1 }); default is insertion order.
@@ -190,6 +205,8 @@ module.exports = {
 	findById,
 	findByEmail,
 	findByPassportNumber,
+	findByShareToken,
+	isShareToken,
 	find,
 	count,
 	emailExists,

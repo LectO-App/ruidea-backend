@@ -65,6 +65,12 @@ model Usuario {
   /// working once it changes. Password reset, password change and logout increment it.
   /// Not part of the API.
   tokenVersion        Int       @default(0)
+  /// Random, unguessable id of the holder's public passport page (/verificar/<shareToken>),
+  /// printed in the passport's QR code and used by "Copiar enlace". 32 random bytes from the
+  /// server's CSPRNG (two gen_random_uuid() values: 244 random bits), base64url without
+  /// padding (43 characters). Every row gets one from the column default, existing rows
+  /// included (the migration backfills them). Not part of the API JSON; /usuario/me adds it.
+  shareToken          String    @unique @default(dbgenerated("rtrim(translate(encode((uuid_send(gen_random_uuid()) || uuid_send(gen_random_uuid())), 'base64'::text), '+/'::text, '-_'::text), '='::text)"))
 
   @@index([numeroPasaporte])
   @@index([estado])

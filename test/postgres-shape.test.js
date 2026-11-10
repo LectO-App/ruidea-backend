@@ -108,6 +108,10 @@ test('request logs never carry document numbers, tokens or route params', () => 
 	const r = requestSerializer({ url: '/usuario/verificar/00000000T/1001', params: { numeroDocumento: '00000000T' } });
 	assert.equal(r.url, '/usuario/verificar/:numeroDocumento/:numeroPasaporte');
 	assert.equal('params' in r, false);
+	const t = requestSerializer({ url: `/usuario/verificar/${'A'.repeat(43)}`, params: { token: 'A'.repeat(43) } });
+	assert.equal(t.url, '/usuario/verificar/:token');
+	assert.equal('params' in t, false);
+	assert.equal(requestSerializer({ url: `/usuario/verificar/${'A'.repeat(43)}?x=1` }).url, '/usuario/verificar/:token?x=1');
 	assert.equal(requestSerializer({ url: '/emailVerification/confirm/eyJhbGciOi.x.y' }).url, '/emailVerification/confirm/:token');
 	assert.equal(requestSerializer({ url: '/emailVerification/resend' }).url, '/emailVerification/resend');
 });
