@@ -25,6 +25,7 @@ const versionOf = u =>
 				f: u.fechaNacimiento,
 				np: u.numeroPasaporte,
 				dg: u.diagnostico,
+				t: u.shareToken,
 			})
 		)
 		.digest('hex')

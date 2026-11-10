@@ -47,21 +47,46 @@ const publicView = u => ({
 	estado: u.estado,
 });
 
-// Public passport share link. Requires both the document and passport number; only an
-// accepted passport resolves; returns minimal fields; rate-limited + audited (§1.6).
+// Old number-based links (/verificar/<documento>/<numeroPasaporte>) are printed in the QR of
+// every passport downloaded before share tokens existed, and in links holders already copied.
+// They keep working while LEGACY_NUMBER_LINKS is on (the default); set it to 0/false/off/no
+// to retire them. Read per request, so tests and a restart pick up a change.
+const legacyNumberLinks = () => !/^(0|false|off|no)$/i.test(String(process.env.LEGACY_NUMBER_LINKS || '').trim());
+
+const verifyAnswer = (req, res, usuario, ok, audit) => {
+	writeAudit(req, { ...audit, outcome: ok ? 'success' : audit.outcome || 'not_found' });
+	if (!ok) return res.json({ existe: false });
+	res.json({ existe: true, usuario: publicView(usuario) });
+};
+
+// Public passport page by share token: the random token in the passport's QR code and in the
+// holder's "Copiar enlace" link. Only an accepted passport resolves; returns the same minimal
+// fields as the number-based link; rate-limited + audited. The audit records the passport
+// number on success and never the token.
+router.post('/verificar/:token', verifyLimiter, async (req, res) => {
+	const usuario = Usuario.isShareToken(req.params.token)
+		? await Usuario.findByShareToken(req.params.token, 'aceptado')
+		: null;
+	verifyAnswer(req, res, usuario, Boolean(usuario), {
+		action: 'passport.verify_token',
+		target: usuario ? String(usuario.numeroPasaporte) : undefined,
+	});
+});
+
+// Legacy public passport share link (see legacyNumberLinks). Requires both the document and
+// passport number; only an accepted passport resolves; returns minimal fields; rate-limited +
+// audited (§1.6). With LEGACY_NUMBER_LINKS off it answers like an unknown passport.
 router.post('/verificar/:numeroDocumento/:numeroPasaporte', verifyLimiter, async (req, res) => {
 	const numeroPasaporte = Number(req.params.numeroPasaporte);
+	if (!legacyNumberLinks()) {
+		writeAudit(req, { action: 'passport.verify_link', target: String(req.params.numeroPasaporte).slice(0, 16), outcome: 'legacy_disabled' });
+		return res.json({ existe: false });
+	}
 	if (!Number.isFinite(numeroPasaporte)) return res.json({ existe: false });
 
 	const usuario = await Usuario.findByPassportNumber(numeroPasaporte, 'aceptado');
 	const ok = usuario && sameDocumento(usuario.numeroDocumento, req.params.numeroDocumento);
-	writeAudit(req, {
-		action: 'passport.verify_link',
-		target: String(numeroPasaporte),
-		outcome: ok ? 'success' : 'not_found',
-	});
-	if (!ok) return res.json({ existe: false });
-	res.json({ existe: true, usuario: publicView(usuario) });
+	verifyAnswer(req, res, usuario, ok, { action: 'passport.verify_link', target: String(numeroPasaporte) });
 });
 
 // Who is asking: a per-verifier API key (X-Verifier-Key, preferred) or the legacy shared
@@ -86,9 +111,10 @@ const verifierCredential = async (req, res, next) => {
 };
 
 // Verifier check: does this passport number belong to this document number on an accepted
-// passport? The caller presents both (from the card or its QR) and gets only yes/no; the
-// answer never carries the document number or any other field, so a credential cannot turn
-// passport numbers (issued in sequence) into document numbers. Wrong credential, unknown
+// passport? The caller presents both (from the card or its QR) and gets only yes/no plus,
+// on yes, the passport's share token (to open its public page); the answer never carries the
+// document number or any other field, so a credential cannot turn passport numbers (issued
+// in sequence) into document numbers. Wrong credential, unknown
 // passport and wrong document all get the same 401; every attempt is audited (§1.8, §10.4,
 // §11.1). Per-verifier keys also have an hourly quota (functions/verifier.js).
 router.post(
@@ -112,7 +138,11 @@ router.post(
 			});
 
 			if (!ok) return res.status(401).json({ correcto: false });
-			res.json({ correcto: true, existe: true });
+			// The share token of the passport just confirmed, so the verifier page opens
+			// /verificar/<token> (it works whether or not LEGACY_NUMBER_LINKS is on). The caller
+			// already holds the passport and document numbers and a credential; the token opens
+			// the same public page those numbers open while the legacy links are on.
+			res.json({ correcto: true, existe: true, token: usuario.shareToken });
 		} catch (err) {
 			req.log && req.log.error({ err }, 'verificarCheckPassword failed');
 			res.status(401).json({ correcto: false });
@@ -127,7 +157,8 @@ router.get('/me', authUser, async (req, res) => {
 	const usuario = await Usuario.findById(req.user.id);
 	if (!usuario) return res.status(404).json({ message: 'Usuario no encontrado' });
 	// Include the session CSRF token so the SPA can recover it after a page reload.
-	res.json({ ...usuario.toJSON(), csrfToken: req.user.csrf });
+	// shareToken: the holder's own public passport link (/verificar/<shareToken>).
+	res.json({ ...usuario.toJSON(), shareToken: usuario.shareToken, csrfToken: req.user.csrf });
 });
 
 // Kept for compatibility, but now ownership-or-admin enforced.

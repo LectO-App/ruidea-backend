@@ -96,12 +96,12 @@ const passportHtml = async user => {
 	const logoDisfam = dataUri('logo-disfam.webp', 'image/webp');
 	const logoLecto = dataUri('logo-lecto.webp', 'image/webp');
 
-	const verifyUrl = `${FRONTEND_URL}/verificar/${encodeURIComponent(user.numeroDocumento)}/${encodeURIComponent(
-		user.numeroPasaporte
-	)}`;
+	// The QR opens the holder's public page by its random share token, never by the
+	// (sequential) passport number and document number. No token, no QR.
+	const verifyUrl = user.shareToken ? `${FRONTEND_URL}/verificar/${encodeURIComponent(user.shareToken)}` : null;
 	let qrUri = '';
 	try {
-		qrUri = await QRCode.toDataURL(verifyUrl, { margin: 1, width: 180 });
+		if (verifyUrl) qrUri = await QRCode.toDataURL(verifyUrl, { margin: 1, width: 180 });
 	} catch (err) {
 		/* QR optional */
 	}
