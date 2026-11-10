@@ -34,6 +34,7 @@ the frontend must call the API with credentials (already configured via axios
 ### 1. Rotate every secret (assume all compromised)
 These shipped in the Docker image and/or the frontend git history:
 - `DB_CONNECTION` — **rotate the Mongo Atlas `admin` password**, update the URI.
+  (After the move to Postgres the app reads `DATABASE_URL` instead.)
 - `AZURE_STORAGE_CONNECTION_STRING` — **rotate the storage account key**.
 - `SECURITY_KEY`, `SMTP_KEY`, `VERIFY_PASSWORD`, `USER_ADMIN`/`CLAVE_HASHEADA_ADMIN`.
 - Set a brand-new `JWT_SECRET` (independent of all the above).
@@ -68,7 +69,8 @@ the shared password and then unset `VERIFY_PASSWORD`.
 ### 5. One-time data migrations
 - **Passport counter**: the atomic counter seeds itself from the current max on first
   acceptance — no action needed, but you may pre-seed with
-  `db.counters.insertOne({_id:'passport', seq:<currentMax>})`.
+  `INSERT INTO counters (id, seq) VALUES ('passport', <currentMax>);` (Postgres; it was
+  `db.counters.insertOne({_id:'passport', seq:<currentMax>})` on MongoDB).
 - **Existing uploaded docs**: old blobs were keyed by email; the new download path reads
   `archivoBlob` on the user record. Back-fill `archivoBlob` for existing users if you want
   their legacy documents downloadable through the new authenticated route.

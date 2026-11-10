@@ -43,3 +43,12 @@ test('passportHtml escapes HTML in user fields', async () => {
 	assert.equal(html.includes('<script>alert(1)</script>'), false);
 	assert.equal(html.includes('&lt;script&gt;'), true);
 });
+
+test('passportHtml takes the flag only from passport-assets/flags', async () => {
+	const base = { nombre: 'A', apellidos: 'B', numeroDocumento: '1', numeroPasaporte: 1001, fechaNacimiento: '2000-01-01' };
+	const withFlag = pais => passportHtml({ ...base, paisResidencia: pais }).then(html => html.includes('class="bandera-pais"'));
+	assert.equal(await withFlag('España'), true);
+	assert.equal(await withFlag('República Dominicana'), true);
+	assert.equal(await withFlag('Atlántida'), false);
+	assert.equal(await withFlag('../recurso2'), false);
+});

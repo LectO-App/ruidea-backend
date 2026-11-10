@@ -1,5 +1,7 @@
 const crypto = require('crypto');
-const { signToken, verifyToken } = require('../functions/tokens');
+const { signToken, verifyToken, tokenVersionClaim } = require('../functions/tokens');
+const Usuario = require('../models/modeloUsuario');
+const { isValidObjectId } = require('../db/objectId');
 
 // Real server-side sessions replacing the public shared "authkey" and the client-set
 // `admin=true` / `logged-in` cookies (SECURITY_ASSESSMENT.md §1.1–1.4). The identity
@@ -28,12 +30,12 @@ const baseCookie = () => ({
 // not be readable by the SPA — instead the SPA stores the returned token and echoes it
 // in a header, and the server compares it to the (unforgeable) JWT claim. An attacker
 // can ride the ambient cookie but cannot read the token or set the header (CORS).
+// A user session also carries the account's tokenVersion (`tv`, see isRevoked below).
 const issueSession = (res, principal) => {
 	const csrf = crypto.randomBytes(32).toString('hex');
-	const token = signToken(
-		{ id: principal.id || null, role: principal.role, csrf },
-		{ expiresIn: SESSION_TTL }
-	);
+	const claims = { id: principal.id || null, role: principal.role, csrf };
+	if (principal.role === 'user') claims.tv = principal.tokenVersion || 0;
+	const token = signToken(claims, { expiresIn: SESSION_TTL });
 
 	res.cookie(SESSION_COOKIE, token, { ...baseCookie(), httpOnly: true });
 	return csrf;
@@ -59,7 +61,18 @@ const checkCsrf = (req, payload) => {
 	return Boolean(payload.csrf) && safeEqual(payload.csrf, headerToken || '');
 };
 
-const authenticate = (req, res, requiredRole) => {
+// A user session is valid only while the account's tokenVersion still equals the one it
+// was issued with. Password reset, password change and logout increment it, which ends
+// every session issued before, on every device. A session whose account no longer exists
+// is refused too. Admin sessions have no account row and are not checked here.
+const isRevoked = async payload => {
+	if (payload.role === 'admin') return false;
+	if (!isValidObjectId(payload.id)) return true;
+	const current = await Usuario.tokenVersionOf(payload.id);
+	return current === null || current !== tokenVersionClaim(payload);
+};
+
+const authenticate = async (req, res, requiredRole) => {
 	const token = req.cookies && req.cookies[SESSION_COOKIE];
 	if (!token) {
 		res.status(401).json({ message: 'No autenticado.' });
@@ -86,21 +99,46 @@ const authenticate = (req, res, requiredRole) => {
 		res.status(403).json({ message: 'Token CSRF inválido.' });
 		return null;
 	}
+	if (await isRevoked(payload)) {
+		res.status(401).json({ message: 'Sesión inválida o expirada.' });
+		return null;
+	}
 	return payload;
 };
 
-const authUser = (req, res, next) => {
-	const payload = authenticate(req, res, null);
+// Express 4 doesn't catch rejected promises from middleware, so a failed lookup is
+// answered here instead of leaving the request hanging.
+const guard = requiredRole => async (req, res, next) => {
+	let payload;
+	try {
+		payload = await authenticate(req, res, requiredRole);
+	} catch (err) {
+		req.log && req.log.error({ err }, 'session check failed');
+		return res.status(500).json({ message: 'Error interno' });
+	}
 	if (!payload) return;
 	req.user = payload;
 	next();
 };
 
-const authAdmin = (req, res, next) => {
-	const payload = authenticate(req, res, 'admin');
-	if (!payload) return;
-	req.user = payload;
-	next();
+const authUser = guard(null);
+const authAdmin = guard('admin');
+
+// Logout. With a valid user session and its CSRF header, the account's tokenVersion is
+// incremented, so every session issued before (on any device, including copies of this
+// cookie) stops working. Without them only the cookies are cleared, so another site can't
+// log someone out everywhere.
+const endSession = async (req, res) => {
+	let payload = null;
+	try {
+		payload = verifyToken(req.cookies && req.cookies[SESSION_COOKIE]);
+	} catch {
+		// No session, or an invalid or expired one: nothing to revoke.
+	}
+	clearSession(res);
+	if (!payload || payload.purpose || payload.role !== 'user' || !checkCsrf(req, payload)) return;
+	if (await isRevoked(payload)) return;
+	await Usuario.bumpTokenVersion(payload.id);
 };
 
 module.exports = {
@@ -108,6 +146,7 @@ module.exports = {
 	CSRF_COOKIE,
 	issueSession,
 	clearSession,
+	endSession,
 	authUser,
 	authAdmin,
 };

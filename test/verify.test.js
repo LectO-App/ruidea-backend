@@ -2,33 +2,40 @@ const { test, before, after } = require('node:test');
 const assert = require('node:assert');
 const crypto = require('crypto');
 
-// Passport verification routes with the Mongoose models stubbed in memory (no database).
-// All people, keys and passwords are synthetic.
+// Passport verification routes against an in-memory stand-in for the Prisma client (no
+// database). All people, keys and passwords are synthetic.
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'testsecret';
 process.env.VERIFY_PASSWORD = 'shared-test-password';
 process.env.VERIFIER_KEY_HOURLY_LIMIT = '3';
 
 const sha = v => crypto.createHash('sha256').update(v).digest('hex');
-const diagnostico = { dislexia: true, discalculia: false, disortografía: false, dispraxia: false, tdah: false };
 const usuarios = [
-	{ _id: 'a'.repeat(24), nombre: 'Prueba', apellidos: 'Uno', numeroDocumento: '40.111.222', numeroPasaporte: 1001, estado: 'aceptado' },
-	{ _id: 'b'.repeat(24), nombre: 'Prueba', apellidos: 'Dos', numeroDocumento: '12345678Z', numeroPasaporte: 1002, estado: 'aceptado' },
-	{ _id: 'c'.repeat(24), nombre: 'Prueba', apellidos: 'Tres', numeroDocumento: '40.333.444', numeroPasaporte: 1003, estado: 'pendiente' },
-].map(u => ({ diagnostico, fechaNacimiento: new Date('2012-05-01'), ...u }));
+	{ id: 'a'.repeat(24), nombre: 'Prueba', apellidos: 'Uno', numeroDocumento: '40.111.222', numeroPasaporte: 1001, estado: 'aceptado' },
+	{ id: 'b'.repeat(24), nombre: 'Prueba', apellidos: 'Dos', numeroDocumento: '12345678Z', numeroPasaporte: 1002, estado: 'aceptado' },
+	{ id: 'c'.repeat(24), nombre: 'Prueba', apellidos: 'Tres', numeroDocumento: '40.333.444', numeroPasaporte: 1003, estado: 'pendiente' },
+].map((u, i) => ({
+	correoElectronico: `${u.id}@example.test`,
+	password: 'x',
+	dislexia: true,
+	fechaNacimiento: new Date('2012-05-01'),
+	shareToken: `${'T'.repeat(42)}${i}`, // synthetic, 43 base64url characters
+	...u,
+}));
+const TOKEN = usuarios.map(u => u.shareToken);
 const verifiers = [
-	{ _id: 'v1', nombre: 'Verificador 1', keyHash: sha('key-one'), activo: true },
-	{ _id: 'v2', nombre: 'Verificador 2', keyHash: sha('key-two'), activo: true },
+	{ id: 'v1', nombre: 'Verificador 1', keyHash: sha('key-one'), activo: true },
+	{ id: 'v2', nombre: 'Verificador 2', keyHash: sha('key-two'), activo: true },
 ];
 const matches = (row, where) => Object.entries(where).every(([k, v]) => row[k] === v);
-const Usuario = require('../models/modeloUsuario');
-const Verifier = require('../models/verifier');
-const AuditLog = require('../models/auditLog');
-Usuario.findOne = async where => usuarios.find(r => matches(r, where)) || null;
-Verifier.findOne = async where => {
-	const v = verifiers.find(r => matches(r, where));
-	return v ? { ...v, save: async () => v } : null;
+const fake = {
+	usuario: { findFirst: async ({ where }) => usuarios.find(r => matches(r, where)) || null },
+	verifier: {
+		findFirst: async ({ where }) => verifiers.find(r => matches(r, where)) || null,
+		update: async () => ({}),
+	},
+	auditLog: { create: async () => ({}) },
 };
-AuditLog.create = async () => ({});
+require('../db/prisma').getPrisma = () => fake;
 
 const express = require('express');
 let server;
@@ -66,9 +73,9 @@ test('a passport number alone no longer returns a document number', async () => 
 
 test('passport + matching document + credential answers yes, with no record fields', async () => {
 	const shared = await check({ pasaporte: 1001, documento: '40.111.222', password: 'shared-test-password' });
-	assert.deepEqual(shared, { status: 200, body: { correcto: true, existe: true } });
+	assert.deepEqual(shared, { status: 200, body: { correcto: true, existe: true, token: TOKEN[0] } });
 	const key = await check({ pasaporte: 1002, documento: '12345678Z' }, { 'x-verifier-key': 'key-one' });
-	assert.deepEqual(key, { status: 200, body: { correcto: true, existe: true } });
+	assert.deepEqual(key, { status: 200, body: { correcto: true, existe: true, token: TOKEN[1] } });
 });
 
 test('the document matches regardless of case, spaces, dots and dashes', async () => {
@@ -106,4 +113,71 @@ test('a verifier key has an hourly quota; other keys and the shared password are
 	assert.deepEqual(statuses, [200, 200, 200, 429, 429]);
 	assert.equal((await check(body, { 'x-verifier-key': 'key-one' })).status, 200);
 	assert.equal((await check({ ...body, password: 'shared-test-password' })).status, 200);
+});
+
+const PUBLIC_FIELDS = ['nombre', 'apellidos', 'paisResidencia', 'numeroDocumento', 'numeroPasaporte', 'fechaNacimiento', 'diagnostico', 'estado'];
+
+test('the share token opens the same public page as the number-based link', async () => {
+	const byToken = await post(`/usuario/verificar/${TOKEN[0]}`);
+	const byNumber = await post('/usuario/verificar/40.111.222/1001');
+	assert.equal(byToken.status, 200);
+	assert.equal(byToken.body.existe, true);
+	assert.deepEqual(byToken.body, byNumber.body);
+	for (const key of Object.keys(byToken.body.usuario)) assert.ok(PUBLIC_FIELDS.includes(key), key);
+	assert.equal(JSON.stringify(byToken.body).includes(TOKEN[0]), false);
+});
+
+test('an unknown, malformed or not-yet-accepted token answers like an unknown passport', async () => {
+	for (const t of [TOKEN[2], 'T'.repeat(43), 'T'.repeat(42), 'T'.repeat(44), '1001', 'numero', `${'T'.repeat(42)}*`]) {
+		assert.deepEqual(await post(`/usuario/verificar/${encodeURIComponent(t)}`), { status: 200, body: { existe: false } }, t);
+	}
+});
+
+test('LEGACY_NUMBER_LINKS off retires number-based links only', async () => {
+	const prev = process.env.LEGACY_NUMBER_LINKS;
+	try {
+		for (const off of ['0', 'false', 'OFF', 'no']) {
+			process.env.LEGACY_NUMBER_LINKS = off;
+			assert.deepEqual((await post('/usuario/verificar/40.111.222/1001')).body, { existe: false }, off);
+			assert.equal((await post(`/usuario/verificar/${TOKEN[0]}`)).body.existe, true);
+			const r = await check({ pasaporte: 1001, documento: '40.111.222', password: 'shared-test-password' });
+			assert.deepEqual(r.body, { correcto: true, existe: true, token: TOKEN[0] });
+		}
+		for (const on of ['', '1', 'true', 'on']) {
+			process.env.LEGACY_NUMBER_LINKS = on;
+			assert.equal((await post('/usuario/verificar/40.111.222/1001')).body.existe, true, on);
+		}
+		delete process.env.LEGACY_NUMBER_LINKS; // unset = on (the default)
+		assert.equal((await post('/usuario/verificar/40.111.222/1001')).body.existe, true);
+	} finally {
+		if (prev === undefined) delete process.env.LEGACY_NUMBER_LINKS;
+		else process.env.LEGACY_NUMBER_LINKS = prev;
+	}
+});
+
+test('a refused verifier check never carries a token', async () => {
+	const r = await check({ pasaporte: 1003, documento: '40.333.444', password: 'shared-test-password' });
+	assert.deepEqual(r, { status: 401, body: { correcto: false } });
+});
+
+test('the passport QR encodes the share-token URL, not the document and passport numbers', async () => {
+	const QRCode = require('qrcode');
+	const original = QRCode.toDataURL;
+	const encoded = [];
+	QRCode.toDataURL = async text => {
+		encoded.push(text);
+		return 'data:image/png;base64,AA==';
+	};
+	try {
+		const { passportHtml } = require('../functions/passportTemplate');
+		const holder = { ...usuarios[0], diagnostico: { dislexia: true }, paisResidencia: 'España' };
+		const html = await passportHtml(holder);
+		assert.deepEqual(encoded, [`https://pasaporte.dea.ong/verificar/${TOKEN[0]}`]);
+		assert.ok(html.includes('data:image/png;base64,AA=='));
+		encoded.length = 0;
+		await passportHtml({ ...holder, shareToken: undefined });
+		assert.deepEqual(encoded, []); // no token, no QR (never a number-based one)
+	} finally {
+		QRCode.toDataURL = original;
+	}
 });

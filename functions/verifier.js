@@ -1,18 +1,21 @@
 const crypto = require('crypto');
 const rateLimit = require('express-rate-limit');
-const Verifier = require('../models/verifier');
+const { getPrisma, wrap } = require('../db/prisma');
 
 const hashKey = key => crypto.createHash('sha256').update(String(key)).digest('hex');
 
 // Resolves a relying-party credential from the X-Verifier-Key header. Returns the
-// verifier doc when the key matches an active record, else null.
+// verifier row when the key matches an active record, else null.
 const resolveVerifier = async req => {
 	const key = req.get('x-verifier-key');
 	if (!key) return null;
-	const verifier = await Verifier.findOne({ keyHash: hashKey(key), activo: true });
+	const prisma = getPrisma();
+	const verifier = await wrap(
+		'verifiers.find',
+		prisma.verifier.findFirst({ where: { keyHash: hashKey(key), activo: true }, orderBy: { id: 'asc' } })
+	);
 	if (verifier) {
-		verifier.ultimoUso = new Date();
-		verifier.save().catch(() => {});
+		prisma.verifier.update({ where: { id: verifier.id }, data: { ultimoUso: new Date() } }).catch(() => {});
 	}
 	return verifier;
 };
@@ -28,7 +31,7 @@ const verifierKeyQuota = rateLimit({
 	windowMs: 60 * 60 * 1000,
 	max: () => Number(process.env.VERIFIER_KEY_HOURLY_LIMIT) || 240,
 	skip: req => !req.verifier,
-	keyGenerator: req => `verifier:${String(req.verifier._id)}`,
+	keyGenerator: req => `verifier:${req.verifier.id}`,
 	message: { correcto: false, message: 'Este verificador superó su límite de consultas por hora.' },
 });
 
