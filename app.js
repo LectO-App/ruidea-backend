@@ -9,6 +9,7 @@ const pinoHttp = require("pino-http");
 require("dotenv/config");
 
 const logger = require("./functions/logger");
+const { clientIp } = require("./middlewares/client-ip");
 const { getPrisma } = require("./db/prisma");
 
 // Safety net: Express 4 does not forward rejections from async route handlers to the
@@ -18,6 +19,7 @@ process.on("unhandledRejection", (err) => logger.error({ err }, "unhandledReject
 process.on("uncaughtException", (err) => logger.error({ err }, "uncaughtException"));
 
 app.set("trust proxy", 1); // behind Azure's proxy: needed for secure cookies + real client IP
+app.use(clientIp); // the visitor's IP when the request comes through the Pages proxy
 
 app.use(helmet());
 app.use(pinoHttp({ logger, serializers: { req: logger.requestSerializer } }));
