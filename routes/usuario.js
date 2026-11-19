@@ -14,7 +14,7 @@ const { emailLimiter, authLimiter, verifyLimiter } = require('../middlewares/rat
 const { validate } = require('../middlewares/validate');
 const schemas = require('../validation/schemas');
 const { resolveVerifier, verifierKeyQuota } = require('../functions/verifier');
-const { writeAudit } = require('../functions/audit');
+const { writeAudit, writeVerifyAudit } = require('../functions/audit');
 const { getPassport } = require('../functions/passportRender');
 const { deleteUserDocuments, logBlobError } = require('../functions/blob');
 
@@ -54,7 +54,7 @@ const publicView = u => ({
 const legacyNumberLinks = () => !/^(0|false|off|no)$/i.test(String(process.env.LEGACY_NUMBER_LINKS || '').trim());
 
 const verifyAnswer = (req, res, usuario, ok, audit) => {
-	writeAudit(req, { ...audit, outcome: ok ? 'success' : audit.outcome || 'not_found' });
+	writeVerifyAudit(req, { ...audit, outcome: ok ? 'success' : audit.outcome || 'not_found' });
 	if (!ok) return res.json({ existe: false });
 	res.json({ existe: true, usuario: publicView(usuario) });
 };
@@ -79,7 +79,7 @@ router.post('/verificar/:token', verifyLimiter, async (req, res) => {
 router.post('/verificar/:numeroDocumento/:numeroPasaporte', verifyLimiter, async (req, res) => {
 	const numeroPasaporte = Number(req.params.numeroPasaporte);
 	if (!legacyNumberLinks()) {
-		writeAudit(req, { action: 'passport.verify_link', target: String(req.params.numeroPasaporte).slice(0, 16), outcome: 'legacy_disabled' });
+		writeVerifyAudit(req, { action: 'passport.verify_link', target: String(req.params.numeroPasaporte).slice(0, 16), outcome: 'legacy_disabled' });
 		return res.json({ existe: false });
 	}
 	if (!Number.isFinite(numeroPasaporte)) return res.json({ existe: false });
@@ -104,7 +104,7 @@ const verifierCredential = async (req, res, next) => {
 	const { password } = req.body;
 	const sharedOk = password && process.env.VERIFY_PASSWORD && safeEqual(password, process.env.VERIFY_PASSWORD);
 	if (!req.verifier && !sharedOk) {
-		writeAudit(req, { action: 'passport.lookup', outcome: 'denied', actorType: 'verifier' });
+		writeVerifyAudit(req, { action: 'passport.lookup', outcome: 'denied', actorType: 'verifier' });
 		return res.status(401).json({ correcto: false });
 	}
 	next();
@@ -129,7 +129,7 @@ router.post(
 		try {
 			const usuario = await Usuario.findByPassportNumber(pasaporte, 'aceptado');
 			const ok = usuario && sameDocumento(usuario.numeroDocumento, documento);
-			writeAudit(req, {
+			writeVerifyAudit(req, {
 				action: 'passport.lookup',
 				actorType: verifier ? 'verifier' : 'anonymous',
 				actorId: verifier ? verifier.id : 'shared',
