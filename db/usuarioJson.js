@@ -131,4 +131,4 @@ const toData = values => {
 	return data;
 };
 
-module.exports = { FIELDS, LIST_FIELDS, DIAGNOSTICO, DATE_FIELDS, KNOWN_KEYS, rowToJson, jsonToRow, toData, normalizeEmail };
+module.exports = { FIELDS, DIAGNOSTICO, DATE_FIELDS, KNOWN_KEYS, rowToJson, jsonToRow, toData, normalizeEmail };

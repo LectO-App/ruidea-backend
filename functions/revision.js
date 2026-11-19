@@ -30,8 +30,10 @@ const changedGroups = (current, next) => {
 	return out;
 };
 
-// The record's cambiosDesdeRevision plus `groups`, in catalog order.
+// The record's cambiosDesdeRevision plus `groups`, in catalog order. Changes count only while
+// the application is in revision; otherwise undefined, which leaves the column as it is.
 const withCambios = (current, groups) => {
+	if (current.estado !== 'revision') return undefined;
 	const set = new Set([...(current.cambiosDesdeRevision || []), ...groups]);
 	return GRUPOS.filter(g => set.has(g));
 };

@@ -262,6 +262,19 @@ test('uploading documents records the documentos group', async () => {
 	assert.deepEqual(rows[0].cambiosDesdeRevision, ['datos', 'documentos']);
 });
 
+test('changes outside a revision are not recorded', async () => {
+	reset(user({ estado: 'borrador', motivosRevision: [] }));
+	const form = new FormData();
+	form.append('Diagnostico Medico - Archivo N0', new Blob(['%PDF-1.4 synthetic'], { type: 'application/pdf' }), 'informe.pdf');
+	assert.equal((await call('POST', '/inscripcion/subir-archivos', { as: 'user', form })).status, 200);
+	assert.deepEqual(rows[0].cambiosDesdeRevision, []);
+
+	reset(user({ estado: 'pendiente', motivosRevision: [] }));
+	await call('PUT', '/inscripcion/actualizar', { as: 'user', body: actualizar({ nombre: 'Otra' }) });
+	assert.equal(rows[0].nombre, 'Otra');
+	assert.deepEqual(rows[0].cambiosDesdeRevision, []);
+});
+
 test('reenviar sends a revised application back to review, only from revision', async () => {
 	reset(user({ cambiosDesdeRevision: ['documentos'] }));
 	const res = await call('POST', '/inscripcion/reenviar', { as: 'user' });
