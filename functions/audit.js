@@ -31,4 +31,4 @@ const writeVerifyAudit = (req, entry) =>
 		meta: { country: visitorCountry(req), device: deviceClass(req.get('user-agent')) },
 	});
 
-module.exports = { writeAudit, writeVerifyAudit, deviceClass };
+module.exports = { writeAudit, writeVerifyAudit };

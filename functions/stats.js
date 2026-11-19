@@ -258,4 +258,4 @@ const getStats = async (range, now = new Date()) => {
 	};
 };
 
-module.exports = { getStats, mergeSmall, QUERIES, MIN_BUCKET };
+module.exports = { getStats, QUERIES };
