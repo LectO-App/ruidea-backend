@@ -52,24 +52,28 @@ router.get("/me", authAdmin, (req, res) => {
 router.post("/respuesta", authAdmin, validate(schemas.respuestaSchema), async (req, res) => {
   try {
     const { emailUsuario, estado, mensajeMedico } = req.body;
+    const motivosRevision = estado === "revision" ? req.body.motivosRevision : [];
     const user = await Usuario.findByEmail(emailUsuario);
     if (!user) return res.status(404).json({ message: "Usuario no encontrado" });
 
+    // Every decision starts a new round: the reasons are this decision's, and the record of
+    // what the applicant changed starts empty.
+    const round = { motivosRevision, cambiosDesdeRevision: [] };
     if (estado === "aceptado") {
       // Keep an existing passport number; otherwise allocate atomically (§5.1).
       const numero = user.numeroPasaporte >= 1000 ? user.numeroPasaporte : await nextPassporte();
-      await Usuario.updateById(user._id, { estado: "aceptado", numeroPasaporte: numero });
+      await Usuario.updateById(user._id, { estado: "aceptado", numeroPasaporte: numero, ...round });
       // Pre-render the passport so the user's first download is instant.
       user.estado = "aceptado";
       user.numeroPasaporte = numero;
       warmPassport(user);
     } else {
-      await Usuario.updateById(user._id, { estado, mensajeMedico: mensajeMedico || "" });
+      await Usuario.updateById(user._id, { estado, mensajeMedico: mensajeMedico || "", ...round });
     }
 
     // Fire-and-forget: don't block the admin response on a slow SMTP round-trip.
-    sendEmailAdmin(emailUsuario, estado, mensajeMedico).catch(err => req.log && req.log.error({ err }, "respuesta email failed"));
-    writeAudit(req, { action: "admin.respuesta", actorType: "admin", target: String(user._id), outcome: "success", meta: { estado } });
+    sendEmailAdmin(emailUsuario, estado, mensajeMedico, motivosRevision).catch(err => req.log && req.log.error({ err }, "respuesta email failed"));
+    writeAudit(req, { action: "admin.respuesta", actorType: "admin", target: String(user._id), outcome: "success", meta: { estado, motivosRevision } });
     res.json({ ok: true });
   } catch (err) {
     req.log && req.log.error({ err }, "respuesta failed");

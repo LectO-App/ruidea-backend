@@ -1,6 +1,7 @@
 const nodemailer = require('nodemailer');
 const Usuario = require('../models/modeloUsuario');
 const { signToken } = require('./tokens');
+const { motivoById } = require('../validation/motivosRevision');
 
 // Base URL of the frontend that email links point to. Configurable so reset/verify
 // links work in any environment (e.g. http://localhost:3000 in dev). Defaults to prod.
@@ -58,21 +59,25 @@ const button = (text, url) => `
 	<!--<![endif]-->`;
 
 // One shared template for every email. `paragraphs` may contain safe author-written HTML
-// (links); `note` is an optional highlighted callout (used for the specialist's message,
-// which is HTML-escaped by the caller).
-const emailShell = ({ heading, paragraphs = [], note = null, buttonText, buttonUrl }) => {
-	const body = paragraphs
-		.map(
-			p =>
-				`<p style="margin:0 0 16px;font-family:${FONT};font-size:17px;line-height:1.6;color:${C.body};">${p}</p>`
-		)
-		.join('');
+// (links); `list` is an optional bullet list shown after the first paragraph; `note` is an
+// optional highlighted callout (used for the specialist's message). The caller HTML-escapes
+// the list items and the note.
+const emailShell = ({ heading, paragraphs = [], list = [], note = null, buttonText, buttonUrl }) => {
+	const paragraph = p =>
+		`<p style="margin:0 0 16px;font-family:${FONT};font-size:17px;line-height:1.6;color:${C.body};">${p}</p>`;
+	const listHtml = list.length
+		? `<ul style="margin:0 0 16px;padding-left:22px;">${list
+				.map(item => `<li style="margin:0 0 8px;font-family:${FONT};font-size:17px;line-height:1.6;color:${C.ink};">${item}</li>`)
+				.join('')}</ul>`
+		: '';
+	const [first, ...rest] = paragraphs;
+	const body = (first === undefined ? '' : paragraph(first)) + listHtml + rest.map(paragraph).join('');
 
 	const noteHtml = note
 		? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:8px 0 24px;border-collapse:separate;">
 				<tr>
 					<td style="background:${C.noteBg};border-left:4px solid ${C.teal};border-radius:10px;padding:16px 18px;">
-						<p style="margin:0 0 6px;font-family:${FONT};font-size:12px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:${C.tealDark};">${note.label}</p>
+						<p style="margin:0 0 6px;font-family:${FONT};font-size:14px;font-weight:700;color:${C.tealDark};">${note.label}</p>
 						<p style="margin:0;font-family:${FONT};font-size:16px;line-height:1.6;color:${C.ink};font-style:italic;">${note.text}</p>
 					</td>
 				</tr>
@@ -130,11 +135,16 @@ const emailShell = ({ heading, paragraphs = [], note = null, buttonText, buttonU
 };
 
 // Plaintext fallback so the message is still readable where HTML is stripped.
-const plain = ({ heading, paragraphs = [], note = null, buttonText, buttonUrl }) =>
+const unescapeHtml = str =>
+	str.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#039;/g, "'").replace(/&amp;/g, '&');
+
+const plain = ({ heading, paragraphs = [], list = [], note = null, buttonText, buttonUrl }) =>
 	[
 		heading,
 		'',
-		...paragraphs.map(p => p.replace(/<[^>]+>/g, '')),
+		...paragraphs.slice(0, 1).map(p => p.replace(/<[^>]+>/g, '')),
+		...list.map(item => `- ${unescapeHtml(item)}`),
+		...paragraphs.slice(1).map(p => p.replace(/<[^>]+>/g, '')),
 		note ? `\n${note.label}: ${note.text}` : '',
 		'',
 		`${buttonText}: ${buttonUrl}`,
@@ -174,8 +184,11 @@ const sendEmail = async id => {
 	});
 };
 
-// Status-change messages sent by the admin review flow.
-const sendEmailAdmin = async (email, estado, mensajeMedico = '') => {
+const cosas = n => (n === 1 ? '1 cosa' : `${n} cosas`);
+
+// Status-change messages sent by the admin review flow. `motivosRevision`: ids from the
+// catalog (validation/motivosRevision.js); the revision email lists their titles.
+const sendEmailAdmin = async (email, estado, mensajeMedico = '', motivosRevision = []) => {
 	const dashboardUrl = `${FRONTEND_URL}/dashboard`;
 	const note = mensajeMedico ? { label: 'Mensaje del especialista', text: escapeHtml(mensajeMedico) } : null;
 
@@ -192,18 +205,31 @@ const sendEmailAdmin = async (email, estado, mensajeMedico = '') => {
 				buttonUrl: dashboardUrl,
 			};
 			break;
-		case 'revision':
-			content = {
+		case 'revision': {
+			const titulos = motivosRevision.map(motivoById).filter(Boolean).map(m => escapeHtml(m.titulo));
+			const guided = {
+				heading: 'Falta poco para tu Pasaporte DEA',
+				paragraphs: [
+					`Un especialista revisó tu solicitud. Solo falta cambiar ${cosas(titulos.length)}:`,
+					'Entra a tu panel: verás un consejo para cada una y podrás cambiar solo esa parte. Después, envía la solicitud de nuevo.',
+				],
+				list: titulos,
+			};
+			const noteOnly = {
 				heading: 'Necesitamos que revises un detalle',
 				paragraphs: [
 					'Un especialista revisó tu solicitud y dejó un mensaje para ti. Con un pequeño cambio quedará lista.',
 					'Entra a tu panel para corregir lo necesario y volver a enviarla.',
 				],
+			};
+			content = {
+				...(titulos.length ? guided : noteOnly),
 				note,
 				buttonText: 'Revisar mi solicitud',
 				buttonUrl: dashboardUrl,
 			};
 			break;
+		}
 		case 'rechazado':
 			content = {
 				heading: 'Novedades sobre tu solicitud',
