@@ -187,7 +187,18 @@ const modificarSchema = z
 	})
 	.strip();
 
+// GET /admin/estadisticas?desde=YYYY-MM-DD&hasta=YYYY-MM-DD, both optional and inclusive.
+const isoDay = z
+	.string()
+	.regex(/^\d{4}-\d{2}-\d{2}$/, 'Usa el formato AAAA-MM-DD')
+	.refine(v => !Number.isNaN(Date.parse(`${v}T00:00:00Z`)) && new Date(`${v}T00:00:00Z`).toISOString().startsWith(v), 'La fecha no existe');
+const estadisticasQuerySchema = z
+	.object({ desde: isoDay.optional(), hasta: isoDay.optional() })
+	.strip()
+	.refine(({ desde, hasta }) => !desde || !hasta || desde <= hasta, { message: 'La fecha de inicio debe ser anterior a la de fin', path: ['hasta'] });
+
 module.exports = {
+	estadisticasQuerySchema,
 	draftStartSchema,
 	draftPatchSchema,
 	submitSchema,

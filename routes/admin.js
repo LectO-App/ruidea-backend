@@ -14,6 +14,7 @@ const { nextPassporte } = require("../functions/passport");
 const { writeAudit } = require("../functions/audit");
 const { warmPassport } = require("../functions/passportRender");
 const { isPassportNumberTaken } = require("../db/prisma");
+const { getStats } = require("../functions/stats");
 
 // Issued passport numbers are unique (unique index). Collisions answer 409 instead of 500.
 const PASSPORT_TAKEN = { message: "Ese número de pasaporte ya está asignado a otra persona." };
@@ -158,6 +159,30 @@ router.post("/solicitudes/:id", authAdmin, async (req, res) => {
     res.json({ usuario });
   } catch (err) {
     res.status(400).json({ message: "Solicitud inválida" });
+  }
+});
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+// Usage statistics, aggregates only (functions/stats.js). Dates are UTC days, both inclusive.
+router.get("/estadisticas", authAdmin, async (req, res) => {
+  const parsed = schemas.estadisticasQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({
+      message: "Datos inválidos",
+      errors: parsed.error.issues.map(i => ({ path: i.path.join("."), message: i.message })),
+    });
+  }
+  const { desde, hasta } = parsed.data;
+  try {
+    const stats = await getStats({
+      desde: desde ? new Date(`${desde}T00:00:00Z`) : null,
+      hasta: hasta ? new Date(Date.parse(`${hasta}T00:00:00Z`) + DAY_MS) : null,
+    });
+    res.json({ rango: { desde: desde || null, hasta: hasta || null }, ...stats });
+  } catch (err) {
+    req.log && req.log.error({ err }, "estadisticas failed");
+    res.status(500).json({ message: "No se pudieron calcular las estadísticas" });
   }
 });
 
