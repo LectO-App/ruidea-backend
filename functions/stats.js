@@ -17,7 +17,15 @@ const DIAGNOSES = ['dislexia', 'discalculia', 'disortografia', 'dispraxia', 'tda
 // $1 = desde (inclusive), $2 = hasta (exclusive); either may be null.
 const inRange = col => `($1::timestamptz IS NULL OR ${col} >= $1::timestamptz) AND ($2::timestamptz IS NULL OR ${col} < $2::timestamptz)`;
 
-const SCANS = `"auditlogs" WHERE action IN ${VERIFY_ACTIONS} AND outcome = 'success'`;
+// A successful verifier check opens the passport's public page (/verificar/<token>, or the
+// legacy link when the passport has no token), which writes its own verify_token or
+// verify_link audit. That open is part of the same check, not a scan or a failed check:
+// skip it when a lookup success for the same passport came in the 2 minutes before it.
+const FOLLOW_UP = `(action <> 'passport.lookup' AND EXISTS (
+	SELECT 1 FROM "auditlogs" l WHERE l.action = 'passport.lookup' AND l.outcome = 'success'
+		AND l.target = "auditlogs".target AND l.at <= "auditlogs".at AND l.at > "auditlogs".at - interval '2 minutes'))`;
+
+const SCANS = `"auditlogs" WHERE action IN ${VERIFY_ACTIONS} AND outcome = 'success' AND NOT ${FOLLOW_UP}`;
 
 // Admin decisions are audited as admin.respuesta with meta.estado; target is the Usuario id.
 const DECISIONS = `SELECT target, at, meta->>'estado' AS estado FROM "auditlogs"
@@ -48,7 +56,7 @@ const QUERIES = {
 
 	weekly: `/* stats:weekly */
 		SELECT to_char(date_trunc('week', at), 'YYYY-MM-DD') AS semana, action, outcome, COUNT(*)::int AS n
-		FROM "auditlogs" WHERE action IN ${VERIFY_ACTIONS} AND ${inRange('at')}
+		FROM "auditlogs" WHERE action IN ${VERIFY_ACTIONS} AND NOT ${FOLLOW_UP} AND ${inRange('at')}
 		GROUP BY 1, 2, 3 ORDER BY 1`,
 
 	monthly: `/* stats:monthly */

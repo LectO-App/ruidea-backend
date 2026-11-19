@@ -180,6 +180,14 @@ test('no query reads personal columns and no answer lists passports', async () =
 	assert.doesNotMatch(json, /numeroPasaporte|target|"ip"/);
 });
 
+test('the page a verifier check opens is not counted again as a scan', () => {
+	const followUp = /action <> 'passport\.lookup' AND EXISTS \(\s*SELECT 1 FROM "auditlogs" l WHERE l\.action = 'passport\.lookup' AND l\.outcome = 'success'\s*AND l\.target = "auditlogs"\.target AND l\.at <= "auditlogs"\.at AND l\.at > "auditlogs"\.at - interval '2 minutes'/;
+	for (const name of ['weekly', 'monthly', 'countries', 'devices', 'passports', 'firstScan', 'busiestDay']) {
+		assert.match(QUERIES[name], /AND NOT \(action <> 'passport\.lookup'/, name);
+		assert.match(QUERIES[name], followUp, name);
+	}
+});
+
 test('an empty database answers zeros and empty lists', async () => {
 	const { status, body } = await get();
 	assert.equal(status, 200);
