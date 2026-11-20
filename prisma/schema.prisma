@@ -51,6 +51,9 @@ model Usuario {
   /// Groups (datos, residencia, diagnostico, documentos) the applicant changed since the last
   /// decision. Emptied by every decision.
   cambiosDesdeRevision String[] @default([])
+  /// The specialist's text for each "Otro" reason, keyed by reason id ({"otro-datos": "…"}).
+  /// Replaced on revision, emptied by any other decision.
+  textosOtro          Json?
   /// -1 until a passport is issued; issued numbers (>= 1000) are unique (partial unique
   /// index usuarios_numeroPasaporte_issued_key in the migration SQL).
   numeroPasaporte     Int?      @default(-1)

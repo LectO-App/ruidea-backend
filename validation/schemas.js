@@ -1,6 +1,6 @@
 const { z } = require('zod');
 const identity = require('./identity');
-const { MOTIVO_IDS, isOtro } = require('./motivosRevision');
+const { MOTIVO_IDS, OTRO_IDS, OTRO_MAX, isOtro } = require('./motivosRevision');
 
 const str = z.string().trim();
 const email = str.toLowerCase().email().max(254);
@@ -160,7 +160,8 @@ const changePasswordSchema = z.object({ token: str.min(1), password: str.min(8).
 const emailSchema = z.object({ mail: email }).strip();
 
 // Returning an application for revision names what to fix: reasons from the fixed catalog
-// (validation/motivosRevision.js), a free-text note, or both. An "Otro" reason needs the note.
+// (validation/motivosRevision.js), a free-text note, or both. Each "Otro" reason needs its
+// own text (textosOtro, keyed by reason id); texts of reasons not picked are dropped.
 const respuestaSchema = z
 	.object({
 		emailUsuario: email,
@@ -172,6 +173,7 @@ const respuestaSchema = z
 			.optional()
 			.default([])
 			.transform(ids => [...new Set(ids)]),
+		textosOtro: z.partialRecord(z.enum(OTRO_IDS), str.max(OTRO_MAX)).optional().default({}),
 	})
 	.strip()
 	.superRefine((data, ctx) => {
@@ -182,15 +184,20 @@ const respuestaSchema = z
 				message: 'Elige al menos un motivo o escribe un mensaje',
 			});
 		}
-		// An "Otro" reason has no fixed tip: the note is what tells the applicant what to change.
-		if (data.estado === 'revision' && data.motivosRevision.some(isOtro) && !data.mensajeMedico) {
-			ctx.addIssue({
-				code: 'custom',
-				path: ['mensajeMedico'],
-				message: 'Si eliges «Otro», escribe en el mensaje qué hay que cambiar',
-			});
+		// An "Otro" reason has no fixed title: its text is what the applicant reads.
+		if (data.estado !== 'revision') return;
+		for (const id of data.motivosRevision.filter(isOtro)) {
+			if (!data.textosOtro[id]) {
+				ctx.addIssue({ code: 'custom', path: ['textosOtro', id], message: 'Escribe qué hay que cambiar' });
+			}
 		}
-	});
+	})
+	.transform(data => ({
+		...data,
+		textosOtro: Object.fromEntries(
+			data.motivosRevision.filter(id => data.estado === 'revision' && isOtro(id)).map(id => [id, data.textosOtro[id]])
+		),
+	}));
 
 const solicitudesSchema = z
 	.object({ condicion: z.enum(['', 'todas', 'pendiente', 'aceptado', 'rechazado', 'revision', 'borrador']).optional().default('') })

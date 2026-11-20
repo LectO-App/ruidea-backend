@@ -198,8 +198,9 @@ test('the revision email lists the reason titles and none of the person\'s data'
 	const mail = await waitForMail();
 	assert.equal(mail.to, `${A}@example.test`);
 	for (const body of [mail.html, mail.text]) {
-		assert.match(body, /El informe no se lee bien/);
-		assert.match(body, /El número de documento no coincide/);
+		assert.match(body, /Sube otra foto del informe/);
+		assert.match(body, /Revisa el número de documento/);
+		assert.doesNotMatch(body, /El informe no se lee bien/);
 		assert.match(body, /2 cosas/);
 		for (const personal of ['Prueba', 'Sintética', 'SINT-0001', 'Ciudad Ficticia', A]) assert.equal(body.includes(personal), false, personal);
 	}
@@ -222,33 +223,67 @@ test('the revision email HTML-escapes reason titles and the note', async () => {
 	}
 });
 
-test('an "Otro" reason needs the specialist\'s note', () => {
+test('an "Otro" reason needs its own text, at most 140 characters', () => {
 	const parse = body => schemas.respuestaSchema.safeParse({ emailUsuario: 'x@example.test', ...body });
 	const ids = ['otro-datos', 'otro-residencia', 'otro-diagnostico', 'otro-documentos'];
 	for (const id of ids) {
 		assert.equal(motivoById(id).otro, true, id);
-		const bare = parse({ estado: 'revision', motivosRevision: [id] });
+		const bare = parse({ estado: 'revision', motivosRevision: [id], mensajeMedico: 'Gracias' });
 		assert.equal(bare.success, false, id);
-		assert.equal(bare.error.issues[0].path.join('.'), 'mensajeMedico');
-		assert.equal(parse({ estado: 'revision', motivosRevision: ['informe-ilegible', id], mensajeMedico: '  ' }).success, false, id);
-		assert.equal(parse({ estado: 'revision', motivosRevision: [id], mensajeMedico: 'Sube la otra cara' }).success, true, id);
+		assert.equal(bare.error.issues[0].path.join('.'), `textosOtro.${id}`);
+		assert.equal(parse({ estado: 'revision', motivosRevision: [id], textosOtro: { [id]: '   ' } }).success, false, id);
+		assert.equal(parse({ estado: 'revision', motivosRevision: [id], textosOtro: { [id]: 'x'.repeat(141) } }).success, false, id);
+		const ok = parse({ estado: 'revision', motivosRevision: [id], textosOtro: { [id]: 'x'.repeat(140) } });
+		assert.equal(ok.success, true, id);
+		assert.deepEqual(ok.data.textosOtro, { [id]: 'x'.repeat(140) });
 	}
-	// Each "Otro" is listed last in its group.
+	// Only "Otro" ids are keys; texts of reasons not picked are dropped.
+	assert.equal(parse({ estado: 'revision', motivosRevision: ['informe-ilegible'], textosOtro: { 'informe-ilegible': 'x' } }).success, false);
+	const dropped = parse({ estado: 'revision', motivosRevision: ['otro-datos'], textosOtro: { 'otro-datos': 'Uno', 'otro-documentos': 'Dos' } });
+	assert.deepEqual(dropped.data.textosOtro, { 'otro-datos': 'Uno' });
+	assert.deepEqual(parse({ estado: 'rechazado', textosOtro: { 'otro-datos': 'Uno' } }).data.textosOtro, {});
+	// Each "Otro" is listed last in its group and has no fixed title.
 	for (const id of ids) {
 		const grupo = MOTIVOS.filter(m => m.grupo === motivoById(id).grupo);
 		assert.equal(grupo[grupo.length - 1].id, id);
+		assert.equal(motivoById(id).titulo, undefined);
 	}
 });
 
-test('the revision email lists "Otro" titles like any other reason', async () => {
+test('every fixed reason has an admin title, an applicant title and a tip', () => {
+	for (const m of MOTIVOS.filter(r => !r.otro)) {
+		assert.ok(m.admin && m.titulo && m.consejo, m.id);
+		assert.equal('accion' in m, false, m.id);
+	}
+});
+
+test('a revision decision stores the "Otro" texts and the next decision empties them', async () => {
 	reset(user({ estado: 'pendiente', motivosRevision: [] }));
 	await call('POST', '/admin/respuesta', {
 		as: 'admin',
-		body: { emailUsuario: `${A}@example.test`, estado: 'revision', motivosRevision: ['otro-documentos'], mensajeMedico: 'Sube la otra cara' },
+		body: { emailUsuario: `${A}@example.test`, estado: 'revision', motivosRevision: ['otro-documentos'], textosOtro: { 'otro-documentos': 'Sube la otra cara' } },
+	});
+	assert.deepEqual(rows[0].textosOtro, { 'otro-documentos': 'Sube la otra cara' });
+	await waitForMail();
+	sent.length = 0;
+
+	const next = await call('POST', '/admin/respuesta', { as: 'admin', body: { emailUsuario: `${A}@example.test`, estado: 'rechazado' } });
+	assert.equal(next.status, 200);
+	assert.deepEqual(rows[0].textosOtro, {});
+	await waitForMail();
+});
+
+test('the revision email lists an "Otro" reason by its text, escaped', async () => {
+	reset(user({ estado: 'pendiente', motivosRevision: [] }));
+	await call('POST', '/admin/respuesta', {
+		as: 'admin',
+		body: { emailUsuario: `${A}@example.test`, estado: 'revision', motivosRevision: ['otro-documentos'], textosOtro: { 'otro-documentos': 'Sube la <b>otra</b> cara' } },
 	});
 	const mail = await waitForMail();
+	assert.match(mail.html, /Sube la &lt;b&gt;otra&lt;\/b&gt; cara/);
+	assert.match(mail.text, /Sube la <b>otra<\/b> cara/);
 	for (const body of [mail.html, mail.text]) {
-		assert.match(body, /Otro cambio en Documentos/);
+		assert.doesNotMatch(body, /Otro cambio en Documentos/);
 		assert.match(body, /1 cosa/);
 		for (const personal of ['Prueba', 'Sintética', 'SINT-0001', 'Ciudad Ficticia', A]) assert.equal(body.includes(personal), false, personal);
 	}
@@ -319,12 +354,14 @@ test('reenviar sends a revised application back to review, only from revision', 
 });
 
 test('the applicant and the admin see the reasons and the changed groups', async () => {
-	reset(user({ cambiosDesdeRevision: ['residencia'] }));
+	reset(user({ cambiosDesdeRevision: ['residencia'], textosOtro: { 'otro-datos': 'Añade el segundo apellido' } }));
 	const me = await call('GET', '/usuario/me', { as: 'user' });
+	assert.deepEqual(me.data.textosOtro, { 'otro-datos': 'Añade el segundo apellido' });
 	assert.deepEqual(me.data.motivosRevision, ['informe-ilegible', 'numero-documento']);
 	assert.deepEqual(me.data.cambiosDesdeRevision, ['residencia']);
 
 	const detail = await call('POST', `/admin/solicitudes/${A}`, { as: 'admin' });
 	assert.deepEqual(detail.data.usuario.motivosRevision, ['informe-ilegible', 'numero-documento']);
+	assert.deepEqual(detail.data.usuario.textosOtro, { 'otro-datos': 'Añade el segundo apellido' });
 	assert.deepEqual(detail.data.usuario.cambiosDesdeRevision, ['residencia']);
 });

@@ -53,12 +53,13 @@ router.post("/respuesta", authAdmin, validate(schemas.respuestaSchema), async (r
   try {
     const { emailUsuario, estado, mensajeMedico } = req.body;
     const motivosRevision = estado === "revision" ? req.body.motivosRevision : [];
+    const { textosOtro } = req.body; // only for the "Otro" reasons picked (validation/schemas.js)
     const user = await Usuario.findByEmail(emailUsuario);
     if (!user) return res.status(404).json({ message: "Usuario no encontrado" });
 
     // Every decision starts a new round: the reasons are this decision's, and the record of
     // what the applicant changed starts empty.
-    const round = { motivosRevision, cambiosDesdeRevision: [] };
+    const round = { motivosRevision, textosOtro, cambiosDesdeRevision: [] };
     if (estado === "aceptado") {
       // Keep an existing passport number; otherwise allocate atomically (§5.1).
       const numero = user.numeroPasaporte >= 1000 ? user.numeroPasaporte : await nextPassporte();
@@ -72,7 +73,7 @@ router.post("/respuesta", authAdmin, validate(schemas.respuestaSchema), async (r
     }
 
     // Fire-and-forget: don't block the admin response on a slow SMTP round-trip.
-    sendEmailAdmin(emailUsuario, estado, mensajeMedico, motivosRevision).catch(err => req.log && req.log.error({ err }, "respuesta email failed"));
+    sendEmailAdmin(emailUsuario, estado, mensajeMedico, motivosRevision, textosOtro).catch(err => req.log && req.log.error({ err }, "respuesta email failed"));
     writeAudit(req, { action: "admin.respuesta", actorType: "admin", target: String(user._id), outcome: "success", meta: { estado, motivosRevision } });
     res.json({ ok: true });
   } catch (err) {

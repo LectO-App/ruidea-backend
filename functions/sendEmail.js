@@ -187,8 +187,9 @@ const sendEmail = async id => {
 const cosas = n => (n === 1 ? '1 cosa' : `${n} cosas`);
 
 // Status-change messages sent by the admin review flow. `motivosRevision`: ids from the
-// catalog (validation/motivosRevision.js); the revision email lists their titles.
-const sendEmailAdmin = async (email, estado, mensajeMedico = '', motivosRevision = []) => {
+// catalog (validation/motivosRevision.js); the revision email lists their applicant titles,
+// or, for an "Otro" reason, the specialist's text for it (`textosOtro`).
+const sendEmailAdmin = async (email, estado, mensajeMedico = '', motivosRevision = [], textosOtro = {}) => {
 	const dashboardUrl = `${FRONTEND_URL}/dashboard`;
 	const note = mensajeMedico ? { label: 'Mensaje del especialista', text: escapeHtml(mensajeMedico) } : null;
 
@@ -206,12 +207,17 @@ const sendEmailAdmin = async (email, estado, mensajeMedico = '', motivosRevision
 			};
 			break;
 		case 'revision': {
-			const titulos = motivosRevision.map(motivoById).filter(Boolean).map(m => escapeHtml(m.titulo));
+			const titulos = motivosRevision
+				.map(motivoById)
+				.filter(Boolean)
+				.map(m => (m.otro ? (textosOtro || {})[m.id] : m.titulo))
+				.filter(Boolean)
+				.map(escapeHtml);
 			const guided = {
 				heading: 'Falta poco para tu Pasaporte DEA',
 				paragraphs: [
-					`Un especialista revisó tu solicitud. Solo falta cambiar ${cosas(titulos.length)}:`,
-					'Entra a tu panel: verás un consejo para cada una y podrás cambiar solo esa parte. Después, envía la solicitud de nuevo.',
+					`Un especialista revisó tu solicitud. Cambia ${cosas(titulos.length)}:`,
+					'Hazlo desde tu panel. Después, envía la solicitud de nuevo.',
 				],
 				list: titulos,
 			};
