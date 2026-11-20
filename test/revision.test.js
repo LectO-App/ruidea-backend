@@ -222,6 +222,38 @@ test('the revision email HTML-escapes reason titles and the note', async () => {
 	}
 });
 
+test('an "Otro" reason needs the specialist\'s note', () => {
+	const parse = body => schemas.respuestaSchema.safeParse({ emailUsuario: 'x@example.test', ...body });
+	const ids = ['otro-datos', 'otro-residencia', 'otro-diagnostico', 'otro-documentos'];
+	for (const id of ids) {
+		assert.equal(motivoById(id).otro, true, id);
+		const bare = parse({ estado: 'revision', motivosRevision: [id] });
+		assert.equal(bare.success, false, id);
+		assert.equal(bare.error.issues[0].path.join('.'), 'mensajeMedico');
+		assert.equal(parse({ estado: 'revision', motivosRevision: ['informe-ilegible', id], mensajeMedico: '  ' }).success, false, id);
+		assert.equal(parse({ estado: 'revision', motivosRevision: [id], mensajeMedico: 'Sube la otra cara' }).success, true, id);
+	}
+	// Each "Otro" is listed last in its group.
+	for (const id of ids) {
+		const grupo = MOTIVOS.filter(m => m.grupo === motivoById(id).grupo);
+		assert.equal(grupo[grupo.length - 1].id, id);
+	}
+});
+
+test('the revision email lists "Otro" titles like any other reason', async () => {
+	reset(user({ estado: 'pendiente', motivosRevision: [] }));
+	await call('POST', '/admin/respuesta', {
+		as: 'admin',
+		body: { emailUsuario: `${A}@example.test`, estado: 'revision', motivosRevision: ['otro-documentos'], mensajeMedico: 'Sube la otra cara' },
+	});
+	const mail = await waitForMail();
+	for (const body of [mail.html, mail.text]) {
+		assert.match(body, /Otro cambio en Documentos/);
+		assert.match(body, /1 cosa/);
+		for (const personal of ['Prueba', 'Sintética', 'SINT-0001', 'Ciudad Ficticia', A]) assert.equal(body.includes(personal), false, personal);
+	}
+});
+
 test('saving one step during a revision records its group and keeps the application in revision', async () => {
 	reset(user());
 	const res = await call('PUT', '/inscripcion/actualizar', { as: 'user', body: actualizar({ numeroDocumento: 'SINT-0002', enviar: false }) });

@@ -14,11 +14,18 @@ const MOTIVOS = [
 	{ id: 'fecha-nacimiento', grupo: 'datos', titulo: 'Revisa la fecha de nacimiento' },
 	{ id: 'datos-tutor', grupo: 'datos', titulo: 'Faltan los datos de quien hace la solicitud' },
 	{ id: 'numero-documento', grupo: 'residencia', titulo: 'El número de documento no coincide' },
+	// One "Otro" reason per step, for anything the list above doesn't name. The specialist's
+	// note says what to change, so an "Otro" reason needs a note (validation/schemas.js).
+	{ id: 'otro-datos', grupo: 'datos', titulo: 'Otro cambio en Datos personales', otro: true },
+	{ id: 'otro-residencia', grupo: 'residencia', titulo: 'Otro cambio en Residencia y documento', otro: true },
+	{ id: 'otro-diagnostico', grupo: 'diagnostico', titulo: 'Otro cambio en Diagnóstico', otro: true },
+	{ id: 'otro-documentos', grupo: 'documentos', titulo: 'Otro cambio en Documentos', otro: true },
 ];
 
 const MOTIVO_IDS = MOTIVOS.map(m => m.id);
 const BY_ID = new Map(MOTIVOS.map(m => [m.id, m]));
 
 const motivoById = id => BY_ID.get(id);
+const isOtro = id => Boolean(BY_ID.get(id) && BY_ID.get(id).otro);
 
-module.exports = { GRUPOS, MOTIVOS, MOTIVO_IDS, motivoById };
+module.exports = { GRUPOS, MOTIVOS, MOTIVO_IDS, motivoById, isOtro };

@@ -1,6 +1,6 @@
 const { z } = require('zod');
 const identity = require('./identity');
-const { MOTIVO_IDS } = require('./motivosRevision');
+const { MOTIVO_IDS, isOtro } = require('./motivosRevision');
 
 const str = z.string().trim();
 const email = str.toLowerCase().email().max(254);
@@ -160,7 +160,7 @@ const changePasswordSchema = z.object({ token: str.min(1), password: str.min(8).
 const emailSchema = z.object({ mail: email }).strip();
 
 // Returning an application for revision names what to fix: reasons from the fixed catalog
-// (validation/motivosRevision.js), a free-text note, or both.
+// (validation/motivosRevision.js), a free-text note, or both. An "Otro" reason needs the note.
 const respuestaSchema = z
 	.object({
 		emailUsuario: email,
@@ -180,6 +180,14 @@ const respuestaSchema = z
 				code: 'custom',
 				path: ['motivosRevision'],
 				message: 'Elige al menos un motivo o escribe un mensaje',
+			});
+		}
+		// An "Otro" reason has no fixed tip: the note is what tells the applicant what to change.
+		if (data.estado === 'revision' && data.motivosRevision.some(isOtro) && !data.mensajeMedico) {
+			ctx.addIssue({
+				code: 'custom',
+				path: ['mensajeMedico'],
+				message: 'Si eliges «Otro», escribe en el mensaje qué hay que cambiar',
 			});
 		}
 	});
