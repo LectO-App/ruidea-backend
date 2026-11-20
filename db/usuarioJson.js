@@ -49,6 +49,12 @@ const DIAGNOSTICO = [
 	['tdah', 'tdah'],
 ];
 
+// Text-array columns added after the copy from MongoDB. Returned only when not empty, so the
+// JSON of every record without them stays exactly what the copy check expects.
+const LIST_FIELDS = ['motivosRevision', 'cambiosDesdeRevision'];
+// JSON-object columns added the same way, returned only when they have a key.
+const MAP_FIELDS = ['textosOtro'];
+
 const KIND = new Map(FIELDS);
 const DATE_FIELDS = new Set(['fechaNacimiento', 'fechaCreacion', 'fechaConsentimiento', 'fechaEnvio']);
 // Keys of the API object that map to columns (plus _id and password).
@@ -69,6 +75,13 @@ const rowToJson = row => {
 		else if (kind === 'optional') {
 			if (row[field] != null) out[field] = row[field];
 		} else out[field] = row[field];
+	}
+	for (const field of LIST_FIELDS) {
+		if (Array.isArray(row[field]) && row[field].length) out[field] = row[field];
+	}
+	for (const field of MAP_FIELDS) {
+		const value = row[field];
+		if (value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length) out[field] = value;
 	}
 	const extra = row.extra && typeof row.extra === 'object' ? row.extra : {};
 	return { ...extra, ...out };
@@ -117,7 +130,7 @@ const toData = values => {
 			data[key] = normalizeEmail(value);
 		} else if (DATE_FIELDS.has(key)) {
 			data[key] = value == null ? null : new Date(value);
-		} else if (key === 'password' || KIND.has(key)) {
+		} else if (key === 'password' || KIND.has(key) || LIST_FIELDS.includes(key) || MAP_FIELDS.includes(key)) {
 			data[key] = value;
 		}
 	}

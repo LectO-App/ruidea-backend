@@ -1,5 +1,6 @@
 const { z } = require('zod');
 const identity = require('./identity');
+const { MOTIVO_IDS, OTRO_IDS, OTRO_MAX, isOtro } = require('./motivosRevision');
 
 const str = z.string().trim();
 const email = str.toLowerCase().email().max(254);
@@ -125,8 +126,17 @@ const submitSchema = withCrossFieldChecks(
 // One-shot registration (legacy single POST) — same strict rules plus a password.
 const registerSchema = withCrossFieldChecks(z.object({ ...usuarioBase, password: str.min(8).max(200) }).strip());
 
+// enviar: false saves the changes of an application returned for revision without sending
+// it back to review yet (the applicant fixes one step at a time, then POST /reenviar).
 const updateSchema = withCrossFieldChecks(
-	z.object({ _id: str.min(1), ...usuarioBase, password: str.min(8).max(200).optional() }).strip()
+	z
+		.object({
+			_id: str.min(1),
+			...usuarioBase,
+			password: str.min(8).max(200).optional(),
+			enviar: z.boolean().optional().default(true),
+		})
+		.strip()
 );
 
 const loginSchema = z.object({ user: str.min(1).max(254), password: str.min(1).max(200) }).strip();
@@ -149,13 +159,45 @@ const changePasswordSchema = z.object({ token: str.min(1), password: str.min(8).
 
 const emailSchema = z.object({ mail: email }).strip();
 
+// Returning an application for revision names what to fix: reasons from the fixed catalog
+// (validation/motivosRevision.js), a free-text note, or both. Each "Otro" reason needs its
+// own text (textosOtro, keyed by reason id); texts of reasons not picked are dropped.
 const respuestaSchema = z
 	.object({
 		emailUsuario: email,
 		estado: z.enum(['aceptado', 'revision', 'rechazado', 'pendiente']),
 		mensajeMedico: str.max(5000).optional().default(''),
+		motivosRevision: z
+			.array(z.enum(MOTIVO_IDS))
+			.max(MOTIVO_IDS.length)
+			.optional()
+			.default([])
+			.transform(ids => [...new Set(ids)]),
+		textosOtro: z.partialRecord(z.enum(OTRO_IDS), str.max(OTRO_MAX)).optional().default({}),
 	})
-	.strip();
+	.strip()
+	.superRefine((data, ctx) => {
+		if (data.estado === 'revision' && data.motivosRevision.length === 0 && !data.mensajeMedico) {
+			ctx.addIssue({
+				code: 'custom',
+				path: ['motivosRevision'],
+				message: 'Elige al menos un motivo o escribe un mensaje',
+			});
+		}
+		// An "Otro" reason has no fixed title: its text is what the applicant reads.
+		if (data.estado !== 'revision') return;
+		for (const id of data.motivosRevision.filter(isOtro)) {
+			if (!data.textosOtro[id]) {
+				ctx.addIssue({ code: 'custom', path: ['textosOtro', id], message: 'Escribe qué hay que cambiar' });
+			}
+		}
+	})
+	.transform(data => ({
+		...data,
+		textosOtro: Object.fromEntries(
+			data.motivosRevision.filter(id => data.estado === 'revision' && isOtro(id)).map(id => [id, data.textosOtro[id]])
+		),
+	}));
 
 const solicitudesSchema = z
 	.object({ condicion: z.enum(['', 'todas', 'pendiente', 'aceptado', 'rechazado', 'revision', 'borrador']).optional().default('') })
