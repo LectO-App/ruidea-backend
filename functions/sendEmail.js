@@ -1,10 +1,11 @@
+const path = require('path');
 const nodemailer = require('nodemailer');
 const Usuario = require('../models/modeloUsuario');
 const { signToken } = require('./tokens');
 
 // Base URL of the frontend that email links point to. Configurable so reset/verify
 // links work in any environment (e.g. http://localhost:3000 in dev). Defaults to prod.
-const FRONTEND_URL = process.env.FRONTEND_URL || '${FRONTEND_URL}';
+const FRONTEND_URL = process.env.FRONTEND_URL || 'https://pasaporte.dea.ong';
 
 const SUPPORT_EMAIL = 'pasaporte@dea.ong';
 const FROM = '"RUIDEA" pasaporte@dea.ong';
@@ -24,6 +25,9 @@ const C = {
 };
 // System font stack — sans-serif, no webfont round-trip; clean and dyslexia-friendly.
 const FONT = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
+
+// Sent with every message and referenced as cid:, so the logo shows without remote-image hosting.
+const LOGO = { filename: 'ruidea-logo.png', path: path.join(__dirname, 'email-assets', 'logo-ruidea.png'), cid: 'ruidea-logo' };
 
 const transporter = () =>
 	nodemailer.createTransport({
@@ -93,15 +97,28 @@ const emailShell = ({ heading, paragraphs = [], note = null, buttonText, buttonU
 		<tr>
 			<td align="center" style="padding:32px 16px;">
 				<table role="presentation" width="560" cellpadding="0" cellspacing="0" style="width:560px;max-width:100%;background:${C.surface};border:1px solid ${C.border};border-radius:18px;overflow:hidden;">
-					<!-- Header / wordmark -->
+					<!-- Accent strip -->
 					<tr>
-						<td align="center" style="padding:30px 24px 22px;border-bottom:1px solid ${C.border};">
-							<span style="font-family:${FONT};font-size:21px;font-weight:800;letter-spacing:0.05em;color:${C.tealDark};">RUIDEA</span><span style="font-family:${FONT};font-size:13px;font-weight:600;letter-spacing:0.01em;color:${C.muted};"> &middot; Pasaporte DEA</span>
+						<td height="4" bgcolor="${C.tealDark}" style="height:4px;background:${C.tealDark};font-size:0;line-height:0;">&nbsp;</td>
+					</tr>
+					<!-- Header -->
+					<tr>
+						<td align="left" style="padding:28px 40px 0;">
+							<table role="presentation" cellpadding="0" cellspacing="0">
+								<tr>
+									<td valign="middle" width="40" style="width:40px;">
+										<img src="cid:${LOGO.cid}" alt="" width="40" height="40" style="display:block;width:40px;height:40px;border:0;" />
+									</td>
+									<td valign="middle" style="padding-left:12px;font-family:${FONT};font-size:17px;line-height:1.3;">
+										<span style="font-weight:700;color:${C.ink};">RUIDEA</span>&nbsp;<span style="font-weight:500;color:${C.muted};">Pasaporte DEA</span>
+									</td>
+								</tr>
+							</table>
 						</td>
 					</tr>
 					<!-- Body -->
 					<tr>
-						<td style="padding:30px 40px 8px;">
+						<td style="padding:28px 40px 8px;">
 							<h1 style="margin:0 0 16px;font-family:${FONT};font-size:26px;line-height:1.25;font-weight:800;color:${C.ink};">${heading}</h1>
 							${body}
 							${noteHtml}
@@ -151,6 +168,7 @@ const send = async (to, subject, content) => {
 		subject,
 		text: plain(content),
 		html: emailShell(content),
+		attachments: [LOGO],
 	});
 };
 
