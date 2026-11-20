@@ -28,7 +28,8 @@ test('every email embeds the RUIDEA logo as an inline cid attachment', async () 
 		const logo = message.attachments.find(a => a.cid === 'ruidea-logo');
 		assert.ok(logo, message.subject);
 		assert.match(fs.readFileSync(logo.path).subarray(1, 4).toString(), /PNG/);
-		assert.match(message.html, /<img[^>]+src="cid:ruidea-logo"[^>]+alt="RUIDEA"/);
+		// Decorative: the name is written beside it, so blocked images do not repeat it.
+		assert.match(message.html, /<img[^>]+src="cid:ruidea-logo"[^>]+alt=""/);
 	}
 });
 
@@ -38,6 +39,7 @@ test('the header still reads RUIDEA and Pasaporte DEA as text when images are bl
 	const text = header.replace(/<img[^>]*>/g, '').replace(/<[^>]+>/g, ' ');
 	assert.match(text, /RUIDEA/);
 	assert.match(text, /Pasaporte DEA/);
+	assert.strictEqual(header.match(/RUIDEA/g).length, 1, 'the name appears once in the header');
 });
 
 test('links fall back to the production front end when FRONTEND_URL is unset', async () => {

@@ -97,17 +97,20 @@ const emailShell = ({ heading, paragraphs = [], note = null, buttonText, buttonU
 		<tr>
 			<td align="center" style="padding:32px 16px;">
 				<table role="presentation" width="560" cellpadding="0" cellspacing="0" style="width:560px;max-width:100%;background:${C.surface};border:1px solid ${C.border};border-radius:18px;overflow:hidden;">
+					<!-- Accent strip -->
+					<tr>
+						<td height="4" bgcolor="${C.tealDark}" style="height:4px;background:${C.tealDark};font-size:0;line-height:0;">&nbsp;</td>
+					</tr>
 					<!-- Header -->
 					<tr>
-						<td align="center" bgcolor="${C.tealDark}" style="background:${C.tealDark};padding:22px 24px;">
+						<td align="left" style="padding:28px 40px 0;">
 							<table role="presentation" cellpadding="0" cellspacing="0">
 								<tr>
-									<td valign="middle" bgcolor="#ffffff" style="background:#ffffff;border-radius:14px;padding:5px;">
-										<img src="cid:${LOGO.cid}" alt="RUIDEA" width="56" height="58" style="display:block;width:56px;height:58px;border:0;font-family:${FONT};font-size:14px;font-weight:700;color:${C.tealDark};" />
+									<td valign="middle" width="40" style="width:40px;">
+										<img src="cid:${LOGO.cid}" alt="" width="40" height="40" style="display:block;width:40px;height:40px;border:0;" />
 									</td>
-									<td valign="middle" style="padding-left:16px;text-align:left;">
-										<p style="margin:0;font-family:${FONT};font-size:22px;line-height:1.2;font-weight:800;letter-spacing:0.03em;color:#ffffff;">RUIDEA</p>
-										<p style="margin:2px 0 0;font-family:${FONT};font-size:16px;line-height:1.3;font-weight:600;color:#e3f2f4;">Pasaporte DEA</p>
+									<td valign="middle" style="padding-left:12px;font-family:${FONT};font-size:17px;line-height:1.3;">
+										<span style="font-weight:700;color:${C.ink};">RUIDEA</span>&nbsp;<span style="font-weight:500;color:${C.muted};">Pasaporte DEA</span>
 									</td>
 								</tr>
 							</table>
@@ -115,7 +118,7 @@ const emailShell = ({ heading, paragraphs = [], note = null, buttonText, buttonU
 					</tr>
 					<!-- Body -->
 					<tr>
-						<td style="padding:30px 40px 8px;">
+						<td style="padding:28px 40px 8px;">
 							<h1 style="margin:0 0 16px;font-family:${FONT};font-size:26px;line-height:1.25;font-weight:800;color:${C.ink};">${heading}</h1>
 							${body}
 							${noteHtml}
