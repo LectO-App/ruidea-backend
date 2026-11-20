@@ -1,5 +1,6 @@
 const { getPrisma } = require('../db/prisma');
 const { newObjectId } = require('../db/objectId');
+const { visitorCountry } = require('../middlewares/client-ip');
 const logger = require('./logger');
 
 // Fire-and-forget audit writer: never let logging failure break the request, but do
@@ -13,4 +14,21 @@ const writeAudit = (req, entry) => {
 		.catch(err => logger.error({ code: err.code || err.name }, 'audit write failed'));
 };
 
-module.exports = { writeAudit };
+const deviceClass = userAgent => {
+	const ua = String(userAgent || '');
+	if (/Mobi|Android|iPhone|iPad|iPod/i.test(ua)) return 'mobile';
+	if (/Windows NT|Macintosh|X11|CrOS|Linux/i.test(ua)) return 'desktop';
+	return 'other';
+};
+
+// Passport verifications (QR / share link, legacy link, verifier lookup) feed the admin
+// statistics: they store the visitor's country and a coarse device class, and no IP, because
+// holders are often minors and a verification trail per IP would locate them.
+const writeVerifyAudit = (req, entry) =>
+	writeAudit(req, {
+		...entry,
+		ip: null,
+		meta: { country: visitorCountry(req), device: deviceClass(req.get('user-agent')) },
+	});
+
+module.exports = { writeAudit, writeVerifyAudit };
