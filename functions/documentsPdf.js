@@ -1,8 +1,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { PDFDocument } = require('pdf-lib');
-const { createJimp } = require('@jimp/core');
-const { defaultFormats, defaultPlugins } = require('jimp');
+const { Jimp } = require('jimp');
 const heicConvert = require('heic-convert');
 
 // Combines a person's uploads (PDFs and photos) into the one PDF the reviewer opens.
@@ -15,8 +14,6 @@ const MARGIN = 28;
 // Longest side of a photo once embedded: about 240 dpi on A4, legible and a few hundred KB.
 const MAX_EDGE = 2000;
 const JPEG_QUALITY = 80;
-
-const Jimp = createJimp({ formats: defaultFormats, plugins: defaultPlugins });
 
 class DocumentFileError extends Error {
 	// kind: 'pdf-encrypted' | 'pdf-damaged' | 'image-undecodable' | 'current-pdf'
@@ -164,7 +161,7 @@ const MESSAGES = {
 	'image-undecodable': name =>
 		`No hemos podido leer la imagen «${name}». Prueba con otra foto en JPG o PNG.`,
 	'current-pdf': () =>
-		'No hemos podido abrir el PDF que ya tenías guardado. Elige «Reemplazar» y sube todos los documentos de nuevo.',
+		'No hemos podido abrir el PDF que ya tenías guardado. Elige «Cambiarlos por los nuevos» y sube todos los documentos otra vez.',
 };
 
 const errorMessage = err => MESSAGES[err.kind](displayName(err.fileName));

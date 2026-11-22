@@ -129,7 +129,7 @@ test('agregar to an old ZIP is refused and keeps the ZIP', async () => {
 	reset(zip);
 	const res = await send([{ name: 'nuevo.pdf', type: 'application/pdf', data: await pdfWithPages(333) }], { modo: 'agregar' });
 	assert.equal(res.status, 409);
-	assert.match((await res.json()).message, /Reemplazar/);
+	assert.match((await res.json()).message, /Cambiarlos por los nuevos/);
 	assert.equal(rows[0].archivoBlob, zip);
 	assert.deepStrictEqual([...blobs.keys()], [zip]);
 });

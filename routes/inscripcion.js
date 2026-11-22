@@ -243,7 +243,7 @@ router.post('/subir-archivos', authUser, validate(schemas.uploadSchema), async (
 		if (req.body.modo === 'agregar' && current.archivoBlob) {
 			if (!isPdfBlob(current.archivoBlob)) {
 				return res.status(409).json({
-					message: 'Tus documentos actuales están guardados en un formato antiguo y no se pueden ampliar. Elige «Reemplazar» y súbelos todos de nuevo.',
+					message: 'Tus documentos actuales están guardados en un formato antiguo y no se pueden ampliar. Elige «Cambiarlos por los nuevos» y súbelos todos otra vez.',
 				});
 			}
 			base = await downloadBlob(current.archivoBlob);

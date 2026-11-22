@@ -79,8 +79,7 @@ const listBlobs = async prefix => {
 };
 
 // A user's uploads are stored as "<record id>/<timestamp>.pdf" (older ones as ".zip"). The id
-// must be a record id
-// (24 lowercase hex), so the prefix can never be empty or reach into another user's folder.
+// must be a record id (24 lowercase hex), so the prefix can never be empty or reach into another user's folder.
 const userPrefix = id => {
 	if (typeof id !== 'string' || !/^[0-9a-f]{24}$/.test(id)) throw new Error('not a record id');
 	return `${id}/`;
