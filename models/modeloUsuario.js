@@ -144,6 +144,19 @@ const deleteById = async id => {
 	}
 };
 
+// Deletes the record only while it is still an unfinished draft, so an application sent
+// in the meantime is never deleted. The deleted record, or null.
+const deleteDraftById = async id => {
+	const key = castObjectId(id);
+	if (key == null) return null;
+	try {
+		return toUsuario(await db().delete({ where: { id: key, estado: 'borrador' } }));
+	} catch (err) {
+		if (isNotFound(err)) return null;
+		throw new DbError('usuarios.deleteDraft', err);
+	}
+};
+
 // doc.save() after changing some fields. Mongoose validated the whole document first, so
 // a record missing a required field (records older than fechaCreacion lack it) could not
 // be saved; keep that outcome.
@@ -214,6 +227,7 @@ module.exports = {
 	create,
 	updateById,
 	deleteById,
+	deleteDraftById,
 	save,
 	tokenVersionOf,
 	bumpTokenVersion,

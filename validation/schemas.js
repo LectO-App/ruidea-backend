@@ -165,6 +165,9 @@ const solicitudesSchema = z
 	.object({ condicion: z.enum(['', 'todas', 'pendiente', 'aceptado', 'rechazado', 'revision', 'borrador']).optional().default('') })
 	.strip();
 
+// Admin cancels an unfinished application; `avisar` emails the person (on by default).
+const cancelarBorradorSchema = z.object({ avisar: z.boolean().optional().default(true) }).strip();
+
 // The admin "modify" form posts flat diagnostic booleans (not the nested object) and a
 // passport number, so this schema is defined explicitly rather than reusing usuarioBase.
 const modificarSchema = z
@@ -217,5 +220,6 @@ module.exports = {
 	uploadSchema,
 	respuestaSchema,
 	solicitudesSchema,
+	cancelarBorradorSchema,
 	modificarSchema,
 };

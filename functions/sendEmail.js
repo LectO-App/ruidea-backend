@@ -62,13 +62,16 @@ const button = (text, url) => `
 	<!--<![endif]-->`;
 
 // One shared template for every email. `paragraphs` may contain safe author-written HTML
-// (links); `note` is an optional highlighted callout (used for the specialist's message,
-// which is HTML-escaped by the caller).
+// (links), or `{ list: [...] }` for a bulleted list; `note` is an optional highlighted
+// callout (used for the specialist's message, which is HTML-escaped by the caller).
 const emailShell = ({ heading, paragraphs = [], note = null, buttonText, buttonUrl }) => {
 	const body = paragraphs
-		.map(
-			p =>
-				`<p style="margin:0 0 16px;font-family:${FONT};font-size:17px;line-height:1.6;color:${C.body};">${p}</p>`
+		.map(p =>
+			p.list
+				? `<ul style="margin:0 0 16px;padding-left:24px;">${p.list
+						.map(item => `<li style="margin:0 0 6px;font-family:${FONT};font-size:17px;line-height:1.6;color:${C.ink};">${item}</li>`)
+						.join('')}</ul>`
+				: `<p style="margin:0 0 16px;font-family:${FONT};font-size:17px;line-height:1.6;color:${C.body};">${p}</p>`
 		)
 		.join('');
 
@@ -151,7 +154,7 @@ const plain = ({ heading, paragraphs = [], note = null, buttonText, buttonUrl })
 	[
 		heading,
 		'',
-		...paragraphs.map(p => p.replace(/<[^>]+>/g, '')),
+		...paragraphs.map(p => (p.list ? p.list.map(item => `- ${item}`).join('\n') : p.replace(/<[^>]+>/g, ''))),
 		note ? `\n${note.label}: ${note.text}` : '',
 		'',
 		`${buttonText}: ${buttonUrl}`,
@@ -173,8 +176,12 @@ const send = async (to, subject, content) => {
 };
 
 // Email-verification message sent right after registration.
+// Never sent to an unfinished application (estado 'borrador'): it says a specialist will
+// review the application, which is false until POST /inscripcion/:id/enviar. Returns
+// whether a message was sent.
 const sendEmail = async id => {
 	const user = await Usuario.findById(id);
+	if (!user || user.estado === 'borrador') return false;
 	// 24h window — long enough that people who read email once a day still make it, and it
 	// matches the "caduca en 24 horas" wording below. If it lapses, the verify page offers a
 	// "Reenviar correo" button that issues a fresh link, so an expired link is never a dead end.
@@ -190,6 +197,7 @@ const sendEmail = async id => {
 		buttonText: 'Confirmar mi correo',
 		buttonUrl: `${FRONTEND_URL}/verificarEmail/${emailToken}`,
 	});
+	return true;
 };
 
 // Status-change messages sent by the admin review flow.
@@ -257,4 +265,39 @@ const sendPasswordResetEmail = async (email, id, tokenVersion) => {
 	});
 };
 
-module.exports = { sendEmail, sendEmailAdmin, sendPasswordResetEmail };
+const greeting = nombre => (nombre ? `¡Hola, ${escapeHtml(nombre)}!` : '¡Hola!');
+
+// Admin reminder for an unfinished application (estado 'borrador'). `pendientes` are the
+// titles of the form steps still missing. The link is the normal login page: the account
+// holds medical documents, so the email carries no login token.
+const sendDraftReminderEmail = async (user, pendientes) => {
+	await send(user.correoElectronico, 'Tu solicitud de RUIDEA aún no está enviada', {
+		heading: 'Tu solicitud aún no está enviada',
+		paragraphs: [
+			`${greeting(user.nombre)} Empezaste tu solicitud del Pasaporte DEA.`,
+			'Tu solicitud no está terminada. Todavía no nos la has enviado, así que nadie la puede revisar.',
+			'Te falta completar estos pasos:',
+			{ list: pendientes.map(escapeHtml) },
+			'Entra con tu correo y tu contraseña. Lo que ya escribiste está guardado, y puedes seguir donde lo dejaste.',
+			'¿No recuerdas tu contraseña? En la página de entrada, pulsa «Olvidé mi contraseña».',
+		],
+		buttonText: 'Continuar mi solicitud',
+		buttonUrl: `${FRONTEND_URL}/login`,
+	});
+};
+
+// Sent when an admin cancels (deletes) an unfinished application.
+const sendDraftCancelledEmail = async user => {
+	await send(user.correoElectronico, 'Hemos cancelado tu solicitud sin terminar de RUIDEA', {
+		heading: 'Hemos cancelado tu solicitud sin terminar',
+		paragraphs: [
+			`${greeting(user.nombre)} Tu solicitud del Pasaporte DEA estaba sin terminar. No se llegó a enviar.`,
+			'La hemos cancelado. Borramos los datos que guardaste y los documentos que subiste.',
+			'Si quieres tu Pasaporte DEA, puedes empezar de nuevo con el mismo correo.',
+		],
+		buttonText: 'Empezar de nuevo',
+		buttonUrl: `${FRONTEND_URL}/inscribirse`,
+	});
+};
+
+module.exports = { sendEmail, sendEmailAdmin, sendPasswordResetEmail, sendDraftReminderEmail, sendDraftCancelledEmail };
