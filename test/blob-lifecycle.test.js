@@ -17,7 +17,7 @@ const fakeService = {
 };
 require('azure-storage').createBlobService = () => fakeService;
 
-const { deleteUserDocuments } = require('../functions/blob');
+const { deleteUserDocuments, isPdfBlob } = require('../functions/blob');
 
 const A = 'aaaaaaaaaaaaaaaaaaaaaaaa';
 const B = 'bbbbbbbbbbbbbbbbbbbbbbbb';
@@ -48,4 +48,18 @@ test('a value that is not a record id lists and deletes nothing', async () => {
 		assert.equal(result.failed, 1, String(id));
 	}
 	assert.equal(store.size, 2);
+});
+
+test('deleting a user removes both older ZIP uploads and PDF uploads', async () => {
+	fill([`${A}/2026-01-01T00:00:00.000Z.zip`, `${A}/2026-02-01T00:00:00.000Z.pdf`, `${B}/2026-01-01T00:00:00.000Z.pdf`]);
+	const result = await deleteUserDocuments(A, `${A}/2026-02-01T00:00:00.000Z.pdf`);
+	assert.deepStrictEqual(result, { deleted: 2, failed: 0, error: null });
+	assert.deepStrictEqual([...store], [`${B}/2026-01-01T00:00:00.000Z.pdf`]);
+});
+
+test('isPdfBlob tells a combined PDF from an older ZIP', () => {
+	assert.equal(isPdfBlob(`${A}/2026-02-01T00:00:00.000Z.pdf`), true);
+	assert.equal(isPdfBlob(`${A}/2026-01-01T00:00:00.000Z.zip`), false);
+	assert.equal(isPdfBlob(''), false);
+	assert.equal(isPdfBlob(null), false);
 });

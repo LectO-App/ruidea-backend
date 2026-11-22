@@ -149,6 +149,10 @@ const changePasswordSchema = z.object({ token: str.min(1), password: str.min(8).
 
 const emailSchema = z.object({ mail: email }).strip();
 
+// The text fields of a document upload. reemplazar: the new files are the whole document.
+// agregar: the new files go after the pages of the PDF stored now.
+const uploadSchema = z.object({ modo: z.enum(['reemplazar', 'agregar']).default('reemplazar') }).strip();
+
 const respuestaSchema = z
 	.object({
 		emailUsuario: email,
@@ -210,6 +214,7 @@ module.exports = {
 	forgotPasswordSchema,
 	changePasswordSchema,
 	emailSchema,
+	uploadSchema,
 	respuestaSchema,
 	solicitudesSchema,
 	modificarSchema,
