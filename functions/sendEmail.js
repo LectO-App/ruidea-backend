@@ -1,3 +1,4 @@
+const path = require('path');
 const nodemailer = require('nodemailer');
 const Usuario = require('../models/modeloUsuario');
 const { signToken } = require('./tokens');
@@ -5,7 +6,7 @@ const { motivoById } = require('../validation/motivosRevision');
 
 // Base URL of the frontend that email links point to. Configurable so reset/verify
 // links work in any environment (e.g. http://localhost:3000 in dev). Defaults to prod.
-const FRONTEND_URL = process.env.FRONTEND_URL || '${FRONTEND_URL}';
+const FRONTEND_URL = process.env.FRONTEND_URL || 'https://pasaporte.dea.ong';
 
 const SUPPORT_EMAIL = 'pasaporte@dea.ong';
 const FROM = '"RUIDEA" pasaporte@dea.ong';
@@ -25,6 +26,9 @@ const C = {
 };
 // System font stack — sans-serif, no webfont round-trip; clean and dyslexia-friendly.
 const FONT = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
+
+// Sent with every message and referenced as cid:, so the logo shows without remote-image hosting.
+const LOGO = { filename: 'ruidea-logo.png', path: path.join(__dirname, 'email-assets', 'logo-ruidea.png'), cid: 'ruidea-logo' };
 
 const transporter = () =>
 	nodemailer.createTransport({
@@ -59,19 +63,18 @@ const button = (text, url) => `
 	<!--<![endif]-->`;
 
 // One shared template for every email. `paragraphs` may contain safe author-written HTML
-// (links); `list` is an optional bullet list shown after the first paragraph; `note` is an
-// optional highlighted callout (used for the specialist's message). The caller HTML-escapes
-// the list items and the note.
-const emailShell = ({ heading, paragraphs = [], list = [], note = null, buttonText, buttonUrl }) => {
-	const paragraph = p =>
-		`<p style="margin:0 0 16px;font-family:${FONT};font-size:17px;line-height:1.6;color:${C.body};">${p}</p>`;
-	const listHtml = list.length
-		? `<ul style="margin:0 0 16px;padding-left:22px;">${list
-				.map(item => `<li style="margin:0 0 8px;font-family:${FONT};font-size:17px;line-height:1.6;color:${C.ink};">${item}</li>`)
-				.join('')}</ul>`
-		: '';
-	const [first, ...rest] = paragraphs;
-	const body = (first === undefined ? '' : paragraph(first)) + listHtml + rest.map(paragraph).join('');
+// (links), or `{ list: [...] }` for a bulleted list; `note` is an optional highlighted
+// callout (used for the specialist's message, which is HTML-escaped by the caller).
+const emailShell = ({ heading, paragraphs = [], note = null, buttonText, buttonUrl }) => {
+	const body = paragraphs
+		.map(p =>
+			p.list
+				? `<ul style="margin:0 0 16px;padding-left:24px;">${p.list
+						.map(item => `<li style="margin:0 0 6px;font-family:${FONT};font-size:17px;line-height:1.6;color:${C.ink};">${item}</li>`)
+						.join('')}</ul>`
+				: `<p style="margin:0 0 16px;font-family:${FONT};font-size:17px;line-height:1.6;color:${C.body};">${p}</p>`
+		)
+		.join('');
 
 	const noteHtml = note
 		? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:8px 0 24px;border-collapse:separate;">
@@ -98,15 +101,28 @@ const emailShell = ({ heading, paragraphs = [], list = [], note = null, buttonTe
 		<tr>
 			<td align="center" style="padding:32px 16px;">
 				<table role="presentation" width="560" cellpadding="0" cellspacing="0" style="width:560px;max-width:100%;background:${C.surface};border:1px solid ${C.border};border-radius:18px;overflow:hidden;">
-					<!-- Header / wordmark -->
+					<!-- Accent strip -->
 					<tr>
-						<td align="center" style="padding:30px 24px 22px;border-bottom:1px solid ${C.border};">
-							<span style="font-family:${FONT};font-size:21px;font-weight:800;letter-spacing:0.05em;color:${C.tealDark};">RUIDEA</span><span style="font-family:${FONT};font-size:13px;font-weight:600;letter-spacing:0.01em;color:${C.muted};"> &middot; Pasaporte DEA</span>
+						<td height="4" bgcolor="${C.tealDark}" style="height:4px;background:${C.tealDark};font-size:0;line-height:0;">&nbsp;</td>
+					</tr>
+					<!-- Header -->
+					<tr>
+						<td align="left" style="padding:28px 40px 0;">
+							<table role="presentation" cellpadding="0" cellspacing="0">
+								<tr>
+									<td valign="middle" width="40" style="width:40px;">
+										<img src="cid:${LOGO.cid}" alt="" width="40" height="40" style="display:block;width:40px;height:40px;border:0;" />
+									</td>
+									<td valign="middle" style="padding-left:12px;font-family:${FONT};font-size:17px;line-height:1.3;">
+										<span style="font-weight:700;color:${C.ink};">RUIDEA</span>&nbsp;<span style="font-weight:500;color:${C.muted};">Pasaporte DEA</span>
+									</td>
+								</tr>
+							</table>
 						</td>
 					</tr>
 					<!-- Body -->
 					<tr>
-						<td style="padding:30px 40px 8px;">
+						<td style="padding:28px 40px 8px;">
 							<h1 style="margin:0 0 16px;font-family:${FONT};font-size:26px;line-height:1.25;font-weight:800;color:${C.ink};">${heading}</h1>
 							${body}
 							${noteHtml}
@@ -138,13 +154,11 @@ const emailShell = ({ heading, paragraphs = [], list = [], note = null, buttonTe
 const unescapeHtml = str =>
 	str.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#039;/g, "'").replace(/&amp;/g, '&');
 
-const plain = ({ heading, paragraphs = [], list = [], note = null, buttonText, buttonUrl }) =>
+const plain = ({ heading, paragraphs = [], note = null, buttonText, buttonUrl }) =>
 	[
 		heading,
 		'',
-		...paragraphs.slice(0, 1).map(p => p.replace(/<[^>]+>/g, '')),
-		...list.map(item => `- ${unescapeHtml(item)}`),
-		...paragraphs.slice(1).map(p => p.replace(/<[^>]+>/g, '')),
+		...paragraphs.map(p => (p.list ? p.list.map(item => `- ${unescapeHtml(item)}`).join('\n') : p.replace(/<[^>]+>/g, ''))),
 		note ? `\n${note.label}: ${note.text}` : '',
 		'',
 		`${buttonText}: ${buttonUrl}`,
@@ -161,12 +175,17 @@ const send = async (to, subject, content) => {
 		subject,
 		text: plain(content),
 		html: emailShell(content),
+		attachments: [LOGO],
 	});
 };
 
 // Email-verification message sent right after registration.
+// Never sent to an unfinished application (estado 'borrador'): it says a specialist will
+// review the application, which is false until POST /inscripcion/:id/enviar. Returns
+// whether a message was sent.
 const sendEmail = async id => {
 	const user = await Usuario.findById(id);
+	if (!user || user.estado === 'borrador') return false;
 	// 24h window — long enough that people who read email once a day still make it, and it
 	// matches the "caduca en 24 horas" wording below. If it lapses, the verify page offers a
 	// "Reenviar correo" button that issues a fresh link, so an expired link is never a dead end.
@@ -182,6 +201,7 @@ const sendEmail = async id => {
 		buttonText: 'Confirmar mi correo',
 		buttonUrl: `${FRONTEND_URL}/verificarEmail/${emailToken}`,
 	});
+	return true;
 };
 
 const cosas = n => (n === 1 ? '1 cosa' : `${n} cosas`);
@@ -217,9 +237,9 @@ const sendEmailAdmin = async (email, estado, mensajeMedico = '', motivosRevision
 				heading: 'Falta poco para tu Pasaporte DEA',
 				paragraphs: [
 					`Un especialista revisó tu solicitud. Cambia ${cosas(titulos.length)}:`,
+					{ list: titulos },
 					'Hazlo desde tu panel. Después, envía la solicitud de nuevo.',
 				],
-				list: titulos,
 			};
 			const noteOnly = {
 				heading: 'Necesitamos que revises un detalle',
@@ -271,4 +291,39 @@ const sendPasswordResetEmail = async (email, id, tokenVersion) => {
 	});
 };
 
-module.exports = { sendEmail, sendEmailAdmin, sendPasswordResetEmail };
+const greeting = nombre => (nombre ? `¡Hola, ${escapeHtml(nombre)}!` : '¡Hola!');
+
+// Admin reminder for an unfinished application (estado 'borrador'). `pendientes` are the
+// titles of the form steps still missing. The link is the normal login page: the account
+// holds medical documents, so the email carries no login token.
+const sendDraftReminderEmail = async (user, pendientes) => {
+	await send(user.correoElectronico, 'Tu solicitud de RUIDEA aún no está enviada', {
+		heading: 'Tu solicitud aún no está enviada',
+		paragraphs: [
+			`${greeting(user.nombre)} Empezaste tu solicitud del Pasaporte DEA.`,
+			'Tu solicitud no está terminada. Todavía no nos la has enviado, así que nadie la puede revisar.',
+			'Te falta completar estos pasos:',
+			{ list: pendientes.map(escapeHtml) },
+			'Entra con tu correo y tu contraseña. Lo que ya escribiste está guardado, y puedes seguir donde lo dejaste.',
+			'¿No recuerdas tu contraseña? En la página de entrada, pulsa «Olvidé mi contraseña».',
+		],
+		buttonText: 'Continuar mi solicitud',
+		buttonUrl: `${FRONTEND_URL}/login`,
+	});
+};
+
+// Sent when an admin cancels (deletes) an unfinished application.
+const sendDraftCancelledEmail = async user => {
+	await send(user.correoElectronico, 'Hemos cancelado tu solicitud sin terminar de RUIDEA', {
+		heading: 'Hemos cancelado tu solicitud sin terminar',
+		paragraphs: [
+			`${greeting(user.nombre)} Tu solicitud del Pasaporte DEA estaba sin terminar. No se llegó a enviar.`,
+			'La hemos cancelado. Borramos los datos que guardaste y los documentos que subiste.',
+			'Si quieres tu Pasaporte DEA, puedes empezar de nuevo con el mismo correo.',
+		],
+		buttonText: 'Empezar de nuevo',
+		buttonUrl: `${FRONTEND_URL}/inscribirse`,
+	});
+};
+
+module.exports = { sendEmail, sendEmailAdmin, sendPasswordResetEmail, sendDraftReminderEmail, sendDraftCancelledEmail };

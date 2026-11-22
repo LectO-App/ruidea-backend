@@ -1,20 +1,39 @@
+const { Writable } = require('node:stream');
 const azureStorage = require('azure-storage');
 
 const CONTAINER = 'ruidea';
 
 const service = () => azureStorage.createBlobService();
 
-// Uploads the zip buffer and returns the stored blob name. The blob name is keyed by
-// the server-side record id (passed in), never by client input (§11.3).
-const uploadZip = (blobName, buffer) =>
+// Uploads a user's combined documents PDF. The blob name is keyed by the server-side record
+// id (passed in), never by client input (§11.3). Served inline, so the reviewer's browser
+// opens it instead of downloading it.
+const uploadPdf = (blobName, buffer) =>
 	new Promise((resolve, reject) => {
 		const getStream = require('into-stream');
 		const stream = getStream(buffer);
-		service().createBlockBlobFromStream(CONTAINER, blobName, stream, buffer.length, error => {
+		const options = { contentSettings: { contentType: 'application/pdf', contentDisposition: 'inline' } };
+		service().createBlockBlobFromStream(CONTAINER, blobName, stream, buffer.length, options, error => {
 			if (error) return reject(error);
 			resolve(blobName);
 		});
 	});
+
+// The whole content of one blob.
+const downloadBlob = blobName =>
+	new Promise((resolve, reject) => {
+		const chunks = [];
+		const sink = new Writable({
+			write(chunk, encoding, done) {
+				chunks.push(chunk);
+				done();
+			},
+		});
+		service().getBlobToStream(CONTAINER, blobName, sink, error => (error ? reject(error) : resolve(Buffer.concat(chunks))));
+	});
+
+// Older uploads are a ZIP of the original files; newer ones are one PDF.
+const isPdfBlob = blobName => typeof blobName === 'string' && blobName.endsWith('.pdf');
 
 // Short-lived read-only SAS URL for one blob. Replaces returning a public anonymous
 // URL and depends on the container being PRIVATE (§3.2). Default 5-minute expiry.
@@ -59,15 +78,15 @@ const listBlobs = async prefix => {
 	return names;
 };
 
-// A user's uploads are stored as "<record id>/<timestamp>.zip". The id must be a record id
-// (24 lowercase hex), so the prefix can never be empty or reach into another user's folder.
+// A user's uploads are stored as "<record id>/<timestamp>.pdf" (older ones as ".zip"). The id
+// must be a record id (24 lowercase hex), so the prefix can never be empty or reach into another user's folder.
 const userPrefix = id => {
 	if (typeof id !== 'string' || !/^[0-9a-f]{24}$/.test(id)) throw new Error('not a record id');
 	return `${id}/`;
 };
 
-// Deletes every stored document of one user: all blobs under "<id>/" (the current zip and
-// any earlier ones), plus `archivoBlob` if it is stored outside that folder (older naming).
+// Deletes every stored document of one user: all blobs under "<id>/" (the current PDF or ZIP
+// and any earlier ones), plus `archivoBlob` if it is stored outside that folder (older naming).
 // Never rejects. Returns { deleted, failed, error } so the caller can log and carry on.
 const deleteUserDocuments = async (id, archivoBlob) => {
 	const result = { deleted: 0, failed: 0, error: null };
@@ -94,4 +113,4 @@ const deleteUserDocuments = async (id, archivoBlob) => {
 const logBlobError = (req, err, message, extra = {}) =>
 	req.log && req.log.error({ ...extra, code: (err && (err.code || err.name)) || 'unknown', statusCode: err && err.statusCode }, message);
 
-module.exports = { uploadZip, sasUrl, deleteBlob, listBlobs, deleteUserDocuments, logBlobError, CONTAINER };
+module.exports = { uploadPdf, downloadBlob, isPdfBlob, sasUrl, deleteBlob, listBlobs, deleteUserDocuments, logBlobError, CONTAINER };

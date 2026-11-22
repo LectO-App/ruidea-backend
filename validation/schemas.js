@@ -159,6 +159,10 @@ const changePasswordSchema = z.object({ token: str.min(1), password: str.min(8).
 
 const emailSchema = z.object({ mail: email }).strip();
 
+// The text fields of a document upload. reemplazar: the new files are the whole document.
+// agregar: the new files go after the pages of the PDF stored now.
+const uploadSchema = z.object({ modo: z.enum(['reemplazar', 'agregar']).default('reemplazar') }).strip();
+
 // Returning an application for revision names what to fix: reasons from the fixed catalog
 // (validation/motivosRevision.js), a free-text note, or both. Each "Otro" reason needs its
 // own text (textosOtro, keyed by reason id); texts of reasons not picked are dropped.
@@ -203,6 +207,9 @@ const solicitudesSchema = z
 	.object({ condicion: z.enum(['', 'todas', 'pendiente', 'aceptado', 'rechazado', 'revision', 'borrador']).optional().default('') })
 	.strip();
 
+// Admin cancels an unfinished application; `avisar` emails the person (on by default).
+const cancelarBorradorSchema = z.object({ avisar: z.boolean().optional().default(true) }).strip();
+
 // The admin "modify" form posts flat diagnostic booleans (not the nested object) and a
 // passport number, so this schema is defined explicitly rather than reusing usuarioBase.
 const modificarSchema = z
@@ -229,7 +236,18 @@ const modificarSchema = z
 	})
 	.strip();
 
+// GET /admin/estadisticas?desde=YYYY-MM-DD&hasta=YYYY-MM-DD, both optional and inclusive.
+const isoDay = z
+	.string()
+	.regex(/^\d{4}-\d{2}-\d{2}$/, 'Usa el formato AAAA-MM-DD')
+	.refine(v => !Number.isNaN(Date.parse(`${v}T00:00:00Z`)) && new Date(`${v}T00:00:00Z`).toISOString().startsWith(v), 'La fecha no existe');
+const estadisticasQuerySchema = z
+	.object({ desde: isoDay.optional(), hasta: isoDay.optional() })
+	.strip()
+	.refine(({ desde, hasta }) => !desde || !hasta || desde <= hasta, { message: 'La fecha de inicio debe ser anterior a la de fin', path: ['hasta'] });
+
 module.exports = {
+	estadisticasQuerySchema,
 	draftStartSchema,
 	draftPatchSchema,
 	submitSchema,
@@ -241,7 +259,9 @@ module.exports = {
 	forgotPasswordSchema,
 	changePasswordSchema,
 	emailSchema,
+	uploadSchema,
 	respuestaSchema,
 	solicitudesSchema,
+	cancelarBorradorSchema,
 	modificarSchema,
 };

@@ -31,12 +31,13 @@ require('nodemailer').createTransport = () => ({ sendMail: async message => sent
 
 const uploaded = [];
 const blob = require('../functions/blob');
-blob.uploadZip = async name => uploaded.push(name);
+blob.uploadPdf = async name => uploaded.push(name);
 blob.deleteBlob = async () => {};
 
 const express = require('express');
 const cookieParser = require('cookie-parser');
 const fileUpload = require('express-fileupload');
+const { PDFDocument } = require('pdf-lib');
 const { signToken } = require('../functions/tokens');
 const schemas = require('../validation/schemas');
 const { MOTIVOS, motivoById } = require('../validation/motivosRevision');
@@ -318,10 +319,17 @@ test('the full edit form still sends the application back to review', async () =
 	assert.deepEqual(rows[0].cambiosDesdeRevision, ['datos']);
 });
 
+// A real one-page PDF: the upload route parses every file into one stored PDF.
+const onePagePdf = async () => {
+	const doc = await PDFDocument.create();
+	doc.addPage([200, 200]);
+	return doc.save();
+};
+
 test('uploading documents records the documentos group', async () => {
 	reset(user({ cambiosDesdeRevision: ['datos'] }));
 	const form = new FormData();
-	form.append('Diagnostico Medico - Archivo N0', new Blob(['%PDF-1.4 synthetic'], { type: 'application/pdf' }), 'informe.pdf');
+	form.append('Diagnostico Medico - Archivo N0', new Blob([await onePagePdf()], { type: 'application/pdf' }), 'informe.pdf');
 	const res = await call('POST', '/inscripcion/subir-archivos', { as: 'user', form });
 	assert.equal(res.status, 200);
 	assert.equal(uploaded.length, 1);
@@ -332,7 +340,7 @@ test('uploading documents records the documentos group', async () => {
 test('changes outside a revision are not recorded', async () => {
 	reset(user({ estado: 'borrador', motivosRevision: [] }));
 	const form = new FormData();
-	form.append('Diagnostico Medico - Archivo N0', new Blob(['%PDF-1.4 synthetic'], { type: 'application/pdf' }), 'informe.pdf');
+	form.append('Diagnostico Medico - Archivo N0', new Blob([await onePagePdf()], { type: 'application/pdf' }), 'informe.pdf');
 	assert.equal((await call('POST', '/inscripcion/subir-archivos', { as: 'user', form })).status, 200);
 	assert.deepEqual(rows[0].cambiosDesdeRevision, []);
 

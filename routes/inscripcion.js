@@ -1,7 +1,6 @@
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcrypt');
-const Zip = require('jszip');
 
 const Usuario = require('../models/modeloUsuario');
 const { isValidObjectId: isValidId } = require('../db/objectId');
@@ -10,7 +9,8 @@ const { issueSession, authUser, authAdmin } = require('../middlewares/session');
 const { registerLimiter, emailLimiter } = require('../middlewares/rate-limit');
 const { validate } = require('../middlewares/validate');
 const schemas = require('../validation/schemas');
-const { uploadZip, sasUrl, deleteBlob, deleteUserDocuments, logBlobError } = require('../functions/blob');
+const { uploadPdf, downloadBlob, isPdfBlob, sasUrl, deleteBlob, deleteUserDocuments, logBlobError } = require('../functions/blob');
+const { combineDocuments, DocumentFileError, errorMessage } = require('../functions/documentsPdf');
 const { writeAudit } = require('../functions/audit');
 const { suggestEmail } = require('../validation/identity');
 const { changedGroups, withCambios } = require('../functions/revision');
@@ -221,47 +221,59 @@ router.post('/', registerLimiter, validate(schemas.registerSchema), async (req, 
 
 // Upload identity/diagnosis documents for the AUTHENTICATED user. Server-side type +
 // count validation; blob keyed by record id, not client input (§3.1, §11.3). Accepts
-// PDFs and images (a phone photo of a paper report, §5).
-router.post('/subir-archivos', authUser, async (req, res) => {
+// PDFs and images (a phone photo of a paper report, §5), and stores them as one PDF in
+// the order sent, so the reviewer opens a single document. With modo=agregar the new
+// files go after the pages of the PDF stored now; either way the result is a new blob.
+router.post('/subir-archivos', authUser, validate(schemas.uploadSchema), async (req, res) => {
 	if (!req.files || Object.keys(req.files).length === 0) {
 		return res.status(400).json({ message: 'Por favor envía un archivo' });
 	}
+	const files = Object.values(req.files).flat();
 	try {
-		const files = Object.values(req.files).flat();
 		if (files.length > MAX_FILES) return res.status(400).json({ message: 'Demasiados archivos' });
 		for (const file of files) {
 			if (!ALLOWED_MIME.has(file.mimetype)) {
-				return res.status(400).json({ message: 'Solo se permiten archivos PDF o imágenes (JPG, PNG)' });
+				return res.status(400).json({ message: 'Solo se permiten archivos PDF o imágenes (JPG, PNG, WebP, HEIC)' });
 			}
 		}
 
-		const zip = new Zip();
-		for (const file of files) zip.file(file.name, file.data);
-		const buffer = await zip.generateAsync({
-			type: 'nodebuffer',
-			compression: 'DEFLATE',
-			compressionOptions: { level: 6 },
-		});
-
 		const current = await Usuario.findById(req.user.id);
 		if (!current) return res.status(404).json({ message: 'Usuario no encontrado' });
-		const blobName = `${req.user.id}/${new Date().toISOString()}.zip`;
-		await uploadZip(blobName, buffer);
+
+		let base = null;
+		if (req.body.modo === 'agregar' && current.archivoBlob) {
+			if (!isPdfBlob(current.archivoBlob)) {
+				return res.status(409).json({
+					message: 'Tus documentos actuales están guardados en un formato antiguo y no se pueden ampliar. Elige «Cambiarlos por los nuevos» y súbelos todos otra vez.',
+				});
+			}
+			base = await downloadBlob(current.archivoBlob);
+		}
+
+		const buffer = await combineDocuments(files, { base });
+		const blobName = `${req.user.id}/${new Date().toISOString()}.pdf`;
+		await uploadPdf(blobName, buffer);
 		// New documents behind an issued passport have not been reviewed: an accepted record goes
 		// back to 'pendiente' (as PUT /actualizar does), keeping its passport number. Rejecting the
 		// upload instead would break the edit flow, which uploads before calling /actualizar.
 		const set = { archivoBlob: blobName, cambiosDesdeRevision: withCambios(current, ['documentos']) };
 		if (current.estado === 'aceptado') set.estado = 'pendiente';
 		await Usuario.updateById(req.user.id, set);
-		// The new zip replaces the previous one. Delete the previous one so superseded ID and
-		// diagnosis documents don't stay in storage. Best-effort: a failure is logged, the upload stands.
+		// The new PDF replaces the previous blob (PDF or older ZIP). Delete the previous one so
+		// superseded ID and diagnosis documents don't stay in storage. Best-effort: a failure is
+		// logged, the upload stands.
 		if (current.archivoBlob && current.archivoBlob !== blobName) {
 			await deleteBlob(current.archivoBlob).catch(err => logBlobError(req, err, 'superseded documents not deleted'));
 		}
 
 		writeAudit(req, { action: 'docs.upload', actorType: 'user', actorId: req.user.id, outcome: 'success' });
-		res.json({ message: 'Documentos subidos', archivos: files.length });
+		res.json({ message: 'Documentos subidos', archivos: files.length, archivoBlob: blobName });
 	} catch (err) {
+		if (err instanceof DocumentFileError) {
+			// Only the count and the kind: file names and contents are personal data.
+			req.log && req.log.warn({ kind: err.kind, archivos: files.length }, 'upload rejected');
+			return res.status(422).json({ message: errorMessage(err) });
+		}
 		req.log && req.log.error({ err }, 'upload failed');
 		res.status(500).json({ message: 'Error al subir el archivo' });
 	}
