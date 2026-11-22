@@ -5,9 +5,9 @@ const { isValidObjectId: isValidId } = require("../db/objectId");
 const bcrypt = require("bcrypt");
 const xl = require("excel4node");
 
-const { sendEmailAdmin, sendEmail } = require("../functions/sendEmail");
+const { sendEmailAdmin, sendEmail, sendDraftReminderEmail, sendDraftCancelledEmail } = require("../functions/sendEmail");
 const { issueSession, clearSession, authAdmin } = require("../middlewares/session");
-const { authLimiter } = require("../middlewares/rate-limit");
+const { authLimiter, emailLimiter } = require("../middlewares/rate-limit");
 const { validate } = require("../middlewares/validate");
 const schemas = require("../validation/schemas");
 const { nextPassporte } = require("../functions/passport");
@@ -15,6 +15,8 @@ const { writeAudit } = require("../functions/audit");
 const { warmPassport } = require("../functions/passportRender");
 const { isPassportNumberTaken } = require("../db/prisma");
 const { getStats } = require("../functions/stats");
+const { REMINDER_ACTION, draftProgress, lastReminders } = require("../functions/drafts");
+const { deleteUserDocuments, logBlobError } = require("../functions/blob");
 
 // Issued passport numbers are unique (unique index). Collisions answer 409 instead of 500.
 const PASSPORT_TAKEN = { message: "Ese número de pasaporte ya está asignado a otra persona." };
@@ -90,6 +92,12 @@ router.post("/solicitudes", authAdmin, validate(schemas.solicitudesSchema), asyn
           ? { estado: req.body.condicion }
           : { estadoNot: "borrador" };
     const usuarios = await Usuario.find(filter, { sort: "newest" });
+    const drafts = usuarios.filter(u => u.estado === "borrador");
+    const reminders = await lastReminders(drafts.map(u => u._id));
+    for (const u of drafts) {
+      u.progreso = draftProgress(u);
+      if (reminders.has(u._id)) u.ultimoRecordatorio = reminders.get(u._id);
+    }
     res.json(usuarios);
   } catch (err) {
     req.log && req.log.error({ err }, "solicitudes failed");
@@ -149,6 +157,52 @@ router.post("/resend/:id", authAdmin, async (req, res) => {
   } catch (err) {
     req.log && req.log.error({ err }, "admin resend failed");
     res.status(400).json({ message: "No se pudo enviar el email" });
+  }
+});
+
+const NOT_FOUND = { message: "Usuario no encontrado" };
+const NOT_A_DRAFT = { message: "Esta solicitud ya fue enviada. Solo se puede hacer esto con solicitudes sin terminar." };
+
+// Unfinished application (estado 'borrador'): sends the person a reminder that it was not
+// sent yet, listing the missing steps. Fire-and-forget like /resend.
+router.post("/borradores/:id/recordatorio", authAdmin, emailLimiter, async (req, res) => {
+  try {
+    if (!isValidId(req.params.id)) return res.status(404).json(NOT_FOUND);
+    const user = await Usuario.findById(req.params.id);
+    if (!user) return res.status(404).json(NOT_FOUND);
+    if (user.estado !== "borrador") return res.status(409).json(NOT_A_DRAFT);
+
+    const pendientes = draftProgress(user).pasos.filter(p => !p.completo).map(p => p.titulo);
+    sendDraftReminderEmail(user, pendientes).catch(err => req.log && req.log.error({ err }, "draft reminder email failed"));
+    writeAudit(req, { action: REMINDER_ACTION, actorType: "admin", target: user._id, outcome: "success" });
+    res.json({ ok: true, ultimoRecordatorio: new Date() });
+  } catch (err) {
+    req.log && req.log.error({ err }, "draft reminder failed");
+    res.status(500).json({ message: "No se pudo enviar el recordatorio" });
+  }
+});
+
+// Cancels an unfinished application: deletes the record and every uploaded document, so the
+// person can register again with the same email. `avisar` emails them that it was cancelled.
+router.post("/borradores/:id/cancelar", authAdmin, emailLimiter, validate(schemas.cancelarBorradorSchema), async (req, res) => {
+  try {
+    if (!isValidId(req.params.id)) return res.status(404).json(NOT_FOUND);
+    const current = await Usuario.findById(req.params.id);
+    if (!current) return res.status(404).json(NOT_FOUND);
+    if (current.estado !== "borrador") return res.status(409).json(NOT_A_DRAFT);
+
+    const user = await Usuario.deleteDraftById(req.params.id);
+    if (!user) return res.status(409).json(NOT_A_DRAFT);
+    const docs = await deleteUserDocuments(user._id, user.archivoBlob);
+    if (docs.failed) logBlobError(req, docs.error, "draft documents not fully deleted", { failed: docs.failed });
+
+    const { avisar } = req.body;
+    if (avisar) sendDraftCancelledEmail(user).catch(err => req.log && req.log.error({ err }, "draft cancelled email failed"));
+    writeAudit(req, { action: "admin.draft_cancel", actorType: "admin", target: user._id, outcome: "success", meta: { avisado: avisar } });
+    res.json({ ok: true });
+  } catch (err) {
+    req.log && req.log.error({ err }, "draft cancel failed");
+    res.status(500).json({ message: "No se pudo cancelar la solicitud" });
   }
 });
 

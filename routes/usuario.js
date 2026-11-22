@@ -17,6 +17,7 @@ const { resolveVerifier, verifierKeyQuota } = require('../functions/verifier');
 const { writeAudit, writeVerifyAudit } = require('../functions/audit');
 const { getPassport } = require('../functions/passportRender');
 const { deleteUserDocuments, logBlobError } = require('../functions/blob');
+const { draftProgress } = require('../functions/drafts');
 
 const { sendPasswordResetEmail } = require('../functions/sendEmail');
 
@@ -158,7 +159,9 @@ router.get('/me', authUser, async (req, res) => {
 	if (!usuario) return res.status(404).json({ message: 'Usuario no encontrado' });
 	// Include the session CSRF token so the SPA can recover it after a page reload.
 	// shareToken: the holder's own public passport link (/verificar/<shareToken>).
-	res.json({ ...usuario.toJSON(), shareToken: usuario.shareToken, csrfToken: req.user.csrf });
+	// progreso: which form steps an unfinished application (borrador) still misses.
+	const progreso = usuario.estado === 'borrador' ? draftProgress(usuario) : undefined;
+	res.json({ ...usuario.toJSON(), shareToken: usuario.shareToken, progreso, csrfToken: req.user.csrf });
 });
 
 // Kept for compatibility, but now ownership-or-admin enforced.
