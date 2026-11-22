@@ -24,8 +24,14 @@ router.post("/confirm/:token", async (req, res) => {
 
 // Resend verification to the AUTHENTICATED user only (no arbitrary :id, rate-limited)
 // — closes the unauthenticated outbound-email abuse vector (§11.2).
+const DRAFT_NOT_SENT = {
+  message: "Tu solicitud aún no está enviada. Termina el formulario y envíala; después te mandaremos el correo.",
+};
+
 router.post("/resend", authUser, emailLimiter, async (req, res) => {
   try {
+    const user = await Usuario.findById(req.user.id);
+    if (user && user.estado === "borrador") return res.status(409).json(DRAFT_NOT_SENT);
     await sendEmail(req.user.id);
     res.send("Email de verificación enviado nuevamente");
   } catch (err) {
@@ -47,7 +53,8 @@ router.post("/resend/:token", emailLimiter, async (req, res) => {
       return res.status(400).json({ message: "Token inválido." });
 
     const user = await Usuario.findById(payload.id);
-    if (user && !user.emailVerificado) {
+    // A draft gets nothing: the verification email is only for sent applications.
+    if (user && !user.emailVerificado && user.estado !== "borrador") {
       await sendEmail(user.id);
     }
     res.send("Si la cuenta necesita verificación, le hemos enviado un nuevo correo.");

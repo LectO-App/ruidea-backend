@@ -120,6 +120,7 @@ before(async () => {
 	app.use(cookieParser());
 	app.use('/admin', require('../routes/admin'));
 	app.use('/usuario', require('../routes/usuario'));
+	app.use('/emailVerification', require('../routes/emailVerification'));
 	await new Promise(resolve => {
 		server = app.listen(0, '127.0.0.1', resolve);
 	});
@@ -292,4 +293,44 @@ test('cancel refuses an application that is not a draft and keeps it', async () 
 test('cancel answers 404 for an unknown id', async () => {
 	const res = await call('POST', `/admin/borradores/${B}/cancelar`, { body: {} });
 	assert.equal(res.status, 404);
+});
+
+// The verification email says a specialist will review the application: never true for a draft.
+test('admin resend refuses a draft and sends no verification email', async () => {
+	rows.push(draft(A));
+	const res = await call('POST', `/admin/resend/${A}`);
+	assert.equal(res.status, 409);
+	await settle();
+	assert.equal(sent.length, 0);
+	assert.equal(audits.length, 0);
+});
+
+test('admin resend still sends the verification email to a sent application', async () => {
+	rows.push(draft(A, { estado: 'pendiente' }));
+	assert.equal((await call('POST', `/admin/resend/${A}`)).status, 200);
+	await settle();
+	assert.equal(sent.length, 1);
+	assert.match(sent[0].subject, /Confirma tu correo/);
+});
+
+test('a draft owner cannot resend the verification email to themselves', async () => {
+	rows.push(draft(A, { tokenVersion: 0 }));
+	const res = await call('POST', '/emailVerification/resend', { cookie: cookieFor(A, 'user') });
+	assert.equal(res.status, 409);
+	assert.match((await res.json()).message, /aún no está enviada/);
+	await settle();
+	assert.equal(sent.length, 0);
+});
+
+test('the resend link from an old token sends nothing to a draft', async () => {
+	rows.push(draft(A));
+	const token = signToken({ id: A, purpose: 'email-verify' }, { expiresIn: -10 });
+	assert.equal((await call('POST', `/emailVerification/resend/${token}`, { cookie: '' })).status, 200);
+	await settle();
+	assert.equal(sent.length, 0);
+
+	rows[0].estado = 'pendiente';
+	assert.equal((await call('POST', `/emailVerification/resend/${token}`, { cookie: '' })).status, 200);
+	await settle();
+	assert.equal(sent.length, 1);
 });

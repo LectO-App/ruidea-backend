@@ -176,8 +176,12 @@ const send = async (to, subject, content) => {
 };
 
 // Email-verification message sent right after registration.
+// Never sent to an unfinished application (estado 'borrador'): it says a specialist will
+// review the application, which is false until POST /inscripcion/:id/enviar. Returns
+// whether a message was sent.
 const sendEmail = async id => {
 	const user = await Usuario.findById(id);
+	if (!user || user.estado === 'borrador') return false;
 	// 24h window — long enough that people who read email once a day still make it, and it
 	// matches the "caduca en 24 horas" wording below. If it lapses, the verify page offers a
 	// "Reenviar correo" button that issues a fresh link, so an expired link is never a dead end.
@@ -193,6 +197,7 @@ const sendEmail = async id => {
 		buttonText: 'Confirmar mi correo',
 		buttonUrl: `${FRONTEND_URL}/verificarEmail/${emailToken}`,
 	});
+	return true;
 };
 
 // Status-change messages sent by the admin review flow.

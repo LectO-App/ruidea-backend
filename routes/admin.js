@@ -150,6 +150,11 @@ router.post("/modificarSolicitud", authAdmin, validate(schemas.modificarSchema),
 router.post("/resend/:id", authAdmin, async (req, res) => {
   try {
     if (!isValidId(req.params.id)) return res.status(404).json({ message: "Usuario no encontrado" });
+    const user = await Usuario.findById(req.params.id);
+    if (!user) return res.status(404).json({ message: "Usuario no encontrado" });
+    // A draft was never sent: the admin's action for it is the reminder, not this email.
+    if (user.estado === "borrador")
+      return res.status(409).json({ message: "Esta solicitud aún no está enviada. Usa «Enviar recordatorio»." });
     // Fire-and-forget: respond immediately, don't block on SMTP.
     sendEmail(req.params.id).catch(err => req.log && req.log.error({ err }, "admin resend failed"));
     writeAudit(req, { action: "admin.resend_verification", actorType: "admin", target: req.params.id, outcome: "success" });
