@@ -9,7 +9,7 @@ const sent = [];
 require('nodemailer').createTransport = () => ({ sendMail: async message => sent.push(message) });
 require('../models/modeloUsuario').findById = async id => ({ id, correoElectronico: 'someone@example.test' });
 
-const { sendEmail, sendEmailAdmin, sendPasswordResetEmail, sendDraftReminderEmail, sendDraftCancelledEmail } = require('../functions/sendEmail');
+const { sendEmail, sendEmailAdmin, sendPasswordResetEmail, sendMagicLinkEmail, sendDraftReminderEmail, sendDraftCancelledEmail } = require('../functions/sendEmail');
 
 const ID = 'aaaaaaaaaaaaaaaaaaaaaaaa';
 
@@ -20,6 +20,7 @@ const sendAll = async () => {
 	await sendEmailAdmin('someone@example.test', 'revision', 'Falta un dato');
 	await sendEmailAdmin('someone@example.test', 'rechazado', 'No aplica');
 	await sendPasswordResetEmail('someone@example.test', ID, 0);
+	await sendMagicLinkEmail({ correoElectronico: 'someone@example.test' }, 'synthetic-token');
 	await sendDraftReminderEmail({ correoElectronico: 'someone@example.test' }, ['Diagnóstico']);
 	await sendDraftCancelledEmail({ correoElectronico: 'someone@example.test' });
 	return sent;

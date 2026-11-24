@@ -208,7 +208,8 @@ test('the reminder emails a draft what is missing, links to login, and writes an
 	assert.match(mail.html, /Diagnóstico/);
 	assert.match(mail.html, /Revisar y enviar/);
 	assert.doesNotMatch(mail.html, /<li[^>]*>Tus datos/, 'a complete step is not listed as missing');
-	assert.match(mail.html, /Olvidé mi contraseña/);
+	assert.match(mail.html, /Enviarme un enlace/);
+	assert.doesNotMatch(mail.html, /Olvidé mi contraseña|correo y tu contraseña/, 'it no longer asks for the password');
 	assert.match(mail.html, /href="http:\/\/front\.example\.test\/login"/);
 	assert.ok(!mail.html.includes('<b>Ana</b>'), 'the name is HTML-escaped');
 	assert.match(mail.text, /http:\/\/front\.example\.test\/login/);
