@@ -214,6 +214,34 @@ const resetPassword = async (doc, hash, expectedVersion) => {
 	return count === 1;
 };
 
+// Sign-in by emailed link (functions/magicLink.js). Stores the hash of the newest link's
+// nonce and its expiry, which replaces any earlier link. False when there is no such record.
+const setMagicLink = async (id, magicLinkHash, magicLinkExpira) => {
+	const key = castObjectId(id);
+	if (key == null) return false;
+	const { count } = await wrap(
+		'usuarios.setMagicLink',
+		db().updateMany({ where: { id: key }, data: { magicLinkHash, magicLinkExpira } })
+	);
+	return count === 1;
+};
+
+// Spends the link: clears the stored hash in one statement, only while it still matches and
+// has not expired, so two concurrent uses can't both pass. Leaves tokenVersion alone, so the
+// account's other sessions keep working. Returns whether this call spent it.
+const consumeMagicLink = async (id, magicLinkHash, now = new Date()) => {
+	const key = castObjectId(id);
+	if (key == null) return false;
+	const { count } = await wrap(
+		'usuarios.consumeMagicLink',
+		db().updateMany({
+			where: { id: key, magicLinkHash, magicLinkExpira: { gt: now } },
+			data: { magicLinkHash: null, magicLinkExpira: null },
+		})
+	);
+	return count === 1;
+};
+
 module.exports = {
 	findById,
 	findByEmail,
@@ -232,5 +260,7 @@ module.exports = {
 	tokenVersionOf,
 	bumpTokenVersion,
 	resetPassword,
+	setMagicLink,
+	consumeMagicLink,
 	toUsuario,
 };

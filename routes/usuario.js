@@ -19,7 +19,8 @@ const { getPassport } = require('../functions/passportRender');
 const { deleteUserDocuments, logBlobError } = require('../functions/blob');
 const { draftProgress } = require('../functions/drafts');
 
-const { sendPasswordResetEmail } = require('../functions/sendEmail');
+const { sendPasswordResetEmail, sendMagicLinkEmail } = require('../functions/sendEmail');
+const { createMagicLinkToken, useMagicLinkToken } = require('../functions/magicLink');
 
 const safeEqual = (a, b) => {
 	if (typeof a !== 'string' || typeof b !== 'string') return false;
@@ -246,6 +247,43 @@ router.post('/forgot-password', emailLimiter, validate(schemas.forgotPasswordSch
 	} catch (err) {
 		req.log && req.log.error({ err }, 'forgot-password failed');
 		generic();
+	}
+});
+
+// Sign-in by emailed link, step 1: emails a link to the account, if there is one. Same
+// answer whether or not the email exists — no enumeration oracle (§10.2). `next` is the path
+// the person wanted to open; it travels inside the signed link.
+router.post('/enlace', emailLimiter, validate(schemas.magicLinkRequestSchema), async (req, res) => {
+	const generic = () => res.json({ message: 'Si el correo está registrado, te enviamos un enlace para entrar.' });
+	try {
+		const user = await Usuario.findByEmail(req.body.email);
+		if (user) await sendMagicLinkEmail(user, await createMagicLinkToken(user, req.body.next));
+		writeAudit(req, { action: 'user.magic_link.request', outcome: user ? 'success' : 'not_found' });
+		generic();
+	} catch (err) {
+		req.log && req.log.error({ err }, 'magic link request failed');
+		writeAudit(req, { action: 'user.magic_link.request', outcome: 'error' });
+		generic();
+	}
+});
+
+// Step 2: the front end's /entrar page posts the token from the link once the page has
+// loaded, so a mail scanner that only fetches the URL does not spend it. Starts a session
+// like /login; the account's other sessions stay valid. Every refusal gets the same message.
+router.post('/enlace/entrar', authLimiter, validate(schemas.magicLinkLoginSchema), async (req, res) => {
+	try {
+		const used = await useMagicLinkToken(req.body.token);
+		if (!used) {
+			writeAudit(req, { action: 'user.magic_link.login', outcome: 'denied' });
+			return res.status(400).json({ correcto: false, message: 'Este enlace ya no sirve. Pide uno nuevo.' });
+		}
+		const id = String(used.user._id);
+		const csrf = issueSession(res, { id, role: 'user', tokenVersion: used.user.tokenVersion });
+		writeAudit(req, { action: 'user.magic_link.login', actorType: 'user', actorId: id, outcome: 'success' });
+		res.json({ correcto: true, csrfToken: csrf, next: used.next });
+	} catch (err) {
+		req.log && req.log.error({ err }, 'magic link sign-in failed');
+		res.status(500).json({ correcto: false, message: 'Error interno' });
 	}
 });
 

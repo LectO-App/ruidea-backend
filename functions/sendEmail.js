@@ -267,9 +267,26 @@ const sendPasswordResetEmail = async (email, id, tokenVersion) => {
 
 const greeting = nombre => (nombre ? `¡Hola, ${escapeHtml(nombre)}!` : '¡Hola!');
 
+// Sign-in by emailed link (POST /usuario/enlace). `token` comes from functions/magicLink.js.
+// The link opens the front end's /entrar page, which spends it with a POST from the page, so
+// a mail scanner that only fetches the URL does not use it up.
+const sendMagicLinkEmail = async (user, token) => {
+	await send(user.correoElectronico, 'Entra a RUIDEA', {
+		heading: 'Entra a RUIDEA',
+		paragraphs: [
+			greeting(user.nombre),
+			'Toca el botón para entrar. No hace falta contraseña.',
+			'Sirve 15 minutos. Si no lo pediste tú, no hagas nada: nadie puede entrar sin este correo.',
+		],
+		buttonText: 'Entrar a RUIDEA',
+		buttonUrl: `${FRONTEND_URL}/entrar/${token}`,
+	});
+};
+
 // Admin reminder for an unfinished application (estado 'borrador'). `pendientes` are the
 // titles of the form steps still missing. The link is the normal login page: the account
-// holds medical documents, so the email carries no login token.
+// holds medical documents, so the email carries no login token; the person asks for a
+// sign-in link there.
 const sendDraftReminderEmail = async (user, pendientes) => {
 	await send(user.correoElectronico, 'Tu solicitud de RUIDEA aún no está enviada', {
 		heading: 'Tu solicitud aún no está enviada',
@@ -278,8 +295,8 @@ const sendDraftReminderEmail = async (user, pendientes) => {
 			'Tu solicitud no está terminada. Todavía no nos la has enviado, así que nadie la puede revisar.',
 			'Te falta completar estos pasos:',
 			{ list: pendientes.map(escapeHtml) },
-			'Entra con tu correo y tu contraseña. Lo que ya escribiste está guardado, y puedes seguir donde lo dejaste.',
-			'¿No recuerdas tu contraseña? En la página de entrada, pulsa «Olvidé mi contraseña».',
+			'Lo que ya escribiste está guardado, y puedes seguir donde lo dejaste.',
+			'Para entrar no necesitas tu contraseña. En la página de entrada, escribe tu correo y pulsa «Enviarme un enlace». Te llega un correo con un botón para entrar.',
 		],
 		buttonText: 'Continuar mi solicitud',
 		buttonUrl: `${FRONTEND_URL}/login`,
@@ -300,4 +317,4 @@ const sendDraftCancelledEmail = async user => {
 	});
 };
 
-module.exports = { sendEmail, sendEmailAdmin, sendPasswordResetEmail, sendDraftReminderEmail, sendDraftCancelledEmail };
+module.exports = { sendEmail, sendEmailAdmin, sendPasswordResetEmail, sendMagicLinkEmail, sendDraftReminderEmail, sendDraftCancelledEmail };

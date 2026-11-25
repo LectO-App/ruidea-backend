@@ -145,6 +145,14 @@ const verifyCheckSchema = z
 
 const forgotPasswordSchema = z.object({ email }).strip();
 
+// Where to go after signing in: a path on this site ("/mostrar"), never another origin
+// ("//host", "/\\host", "https://...").
+const nextPath = str.max(300).regex(/^\/(?![/\\])[^\\\s]*$/, 'Ruta inválida');
+
+const magicLinkRequestSchema = z.object({ email, next: nextPath.optional() }).strip();
+
+const magicLinkLoginSchema = z.object({ token: str.min(1).max(2000) }).strip();
+
 const changePasswordSchema = z.object({ token: str.min(1), password: str.min(8).max(200) }).strip();
 
 const emailSchema = z.object({ mail: email }).strip();
@@ -215,6 +223,8 @@ module.exports = {
 	adminLoginSchema,
 	verifyCheckSchema,
 	forgotPasswordSchema,
+	magicLinkRequestSchema,
+	magicLinkLoginSchema,
 	changePasswordSchema,
 	emailSchema,
 	uploadSchema,

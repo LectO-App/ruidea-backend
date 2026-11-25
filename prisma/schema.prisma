@@ -71,6 +71,11 @@ model Usuario {
   /// padding (43 characters). Every row gets one from the column default, existing rows
   /// included (the migration backfills them). Not part of the API JSON; /usuario/me adds it.
   shareToken          String    @unique @default(dbgenerated("rtrim(translate(encode((uuid_send(gen_random_uuid()) || uuid_send(gen_random_uuid())), 'base64'::text), '+/'::text, '-_'::text), '='::text)"))
+  /// Sign-in by emailed link (POST /usuario/enlace): SHA-256 (hex) of the nonce in the latest
+  /// link, never the nonce itself, and when that link stops working. Using the link clears
+  /// both, so it works once; asking for a new link replaces them. Not part of the API.
+  magicLinkHash       String?
+  magicLinkExpira     DateTime? @db.Timestamptz(3)
 
   @@index([numeroPasaporte])
   @@index([estado])
