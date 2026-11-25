@@ -13,6 +13,7 @@ const { uploadPdf, downloadBlob, isPdfBlob, sasUrl, deleteBlob, deleteUserDocume
 const { combineDocuments, DocumentFileError, errorMessage } = require('../functions/documentsPdf');
 const { writeAudit } = require('../functions/audit');
 const { suggestEmail } = require('../validation/identity');
+const { changedGroups, withCambios } = require('../functions/revision');
 
 const { sendEmail } = require('../functions/sendEmail');
 
@@ -255,7 +256,7 @@ router.post('/subir-archivos', authUser, validate(schemas.uploadSchema), async (
 		// New documents behind an issued passport have not been reviewed: an accepted record goes
 		// back to 'pendiente' (as PUT /actualizar does), keeping its passport number. Rejecting the
 		// upload instead would break the edit flow, which uploads before calling /actualizar.
-		const set = { archivoBlob: blobName };
+		const set = { archivoBlob: blobName, cambiosDesdeRevision: withCambios(current, ['documentos']) };
 		if (current.estado === 'aceptado') set.estado = 'pendiente';
 		await Usuario.updateById(req.user.id, set);
 		// The new PDF replaces the previous blob (PDF or older ZIP). Delete the previous one so
@@ -320,8 +321,14 @@ router.put('/actualizar', authUser, validate(schemas.updateSchema), async (req, 
 			tutorNombre: body.tutorNombre || '',
 			tutorApellidos: body.tutorApellidos || '',
 			tutorParentesco: body.tutorParentesco || '',
-			estado: 'pendiente', // edits go back to review, but keep existing passport number
 		};
+		const current = await Usuario.findById(body._id);
+		if (!current) return res.status(404).json({ message: 'No encontrado' });
+		set.cambiosDesdeRevision = withCambios(current, changedGroups(current, set));
+		// Edits go back to review (keeping the passport number), except a step saved with
+		// enviar: false while the application is in revision: POST /reenviar sends it.
+		const keepRevision = !body.enviar && current.estado === 'revision';
+		if (!keepRevision) set.estado = 'pendiente';
 		if (typeof body.password === 'string' && body.password.length >= 8) {
 			set.password = await bcrypt.hash(body.password, 10);
 		}
@@ -342,6 +349,26 @@ router.put('/actualizar', authUser, validate(schemas.updateSchema), async (req, 
 		req.log && req.log.error({ err }, 'actualizar failed');
 		if (isUniqueViolation(err)) return res.status(409).json({ message: 'El correo ya está registrado' });
 		res.status(400).json({ message: 'No se pudo actualizar' });
+	}
+});
+
+// Sends an application returned for revision back to review once the applicant has fixed it
+// (step by step, with PUT /actualizar enviar: false). Owner only. cambiosDesdeRevision stays
+// for the specialist to see until their next decision.
+router.post('/reenviar', authUser, async (req, res) => {
+	try {
+		if (!isValidId(req.user.id)) return res.status(404).json({ message: 'No encontrado' });
+		const current = await Usuario.findById(req.user.id);
+		if (!current) return res.status(404).json({ message: 'No encontrado' });
+		if (current.estado !== 'revision') {
+			return res.status(409).json({ message: 'Tu solicitud no está esperando cambios.' });
+		}
+		const usuario = await Usuario.updateById(req.user.id, { estado: 'pendiente' });
+		writeAudit(req, { action: 'user.resubmit', actorType: 'user', actorId: req.user.id, outcome: 'success' });
+		res.json({ usuario });
+	} catch (err) {
+		req.log && req.log.error({ err }, 'reenviar failed');
+		res.status(500).json({ message: 'No se pudo enviar la solicitud' });
 	}
 });
 

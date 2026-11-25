@@ -45,6 +45,15 @@ model Usuario {
   fechaCreacion       DateTime? @db.Timestamptz(3)
   estado              String?   @default("borrador")
   mensajeMedico       String?   @default("")
+  /// Ids of the reasons (validation/motivosRevision.js) the specialist gave when returning the
+  /// application for revision. Replaced on revision, emptied by any other decision.
+  motivosRevision     String[]  @default([])
+  /// Groups (datos, residencia, diagnostico, documentos) the applicant changed since the last
+  /// decision. Emptied by every decision.
+  cambiosDesdeRevision String[] @default([])
+  /// The specialist's text for each "Otro" reason, keyed by reason id ({"otro-datos": "…"}).
+  /// Replaced on revision, emptied by any other decision.
+  textosOtro          Json?
   /// -1 until a passport is issued; issued numbers (>= 1000) are unique (partial unique
   /// index usuarios_numeroPasaporte_issued_key in the migration SQL).
   numeroPasaporte     Int?      @default(-1)

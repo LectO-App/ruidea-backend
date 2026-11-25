@@ -2,6 +2,7 @@ const path = require('path');
 const nodemailer = require('nodemailer');
 const Usuario = require('../models/modeloUsuario');
 const { signToken } = require('./tokens');
+const { motivoById } = require('../validation/motivosRevision');
 
 // Base URL of the frontend that email links point to. Configurable so reset/verify
 // links work in any environment (e.g. http://localhost:3000 in dev). Defaults to prod.
@@ -79,7 +80,7 @@ const emailShell = ({ heading, paragraphs = [], note = null, buttonText, buttonU
 		? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:8px 0 24px;border-collapse:separate;">
 				<tr>
 					<td style="background:${C.noteBg};border-left:4px solid ${C.teal};border-radius:10px;padding:16px 18px;">
-						<p style="margin:0 0 6px;font-family:${FONT};font-size:12px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:${C.tealDark};">${note.label}</p>
+						<p style="margin:0 0 6px;font-family:${FONT};font-size:14px;font-weight:700;color:${C.tealDark};">${note.label}</p>
 						<p style="margin:0;font-family:${FONT};font-size:16px;line-height:1.6;color:${C.ink};font-style:italic;">${note.text}</p>
 					</td>
 				</tr>
@@ -150,11 +151,14 @@ const emailShell = ({ heading, paragraphs = [], note = null, buttonText, buttonU
 };
 
 // Plaintext fallback so the message is still readable where HTML is stripped.
+const unescapeHtml = str =>
+	str.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#039;/g, "'").replace(/&amp;/g, '&');
+
 const plain = ({ heading, paragraphs = [], note = null, buttonText, buttonUrl }) =>
 	[
 		heading,
 		'',
-		...paragraphs.map(p => (p.list ? p.list.map(item => `- ${item}`).join('\n') : p.replace(/<[^>]+>/g, ''))),
+		...paragraphs.map(p => (p.list ? p.list.map(item => `- ${unescapeHtml(item)}`).join('\n') : p.replace(/<[^>]+>/g, ''))),
 		note ? `\n${note.label}: ${note.text}` : '',
 		'',
 		`${buttonText}: ${buttonUrl}`,
@@ -200,8 +204,12 @@ const sendEmail = async id => {
 	return true;
 };
 
-// Status-change messages sent by the admin review flow.
-const sendEmailAdmin = async (email, estado, mensajeMedico = '') => {
+const cosas = n => (n === 1 ? '1 cosa' : `${n} cosas`);
+
+// Status-change messages sent by the admin review flow. `motivosRevision`: ids from the
+// catalog (validation/motivosRevision.js); the revision email lists their applicant titles,
+// or, for an "Otro" reason, the specialist's text for it (`textosOtro`).
+const sendEmailAdmin = async (email, estado, mensajeMedico = '', motivosRevision = [], textosOtro = {}) => {
 	const dashboardUrl = `${FRONTEND_URL}/dashboard`;
 	const note = mensajeMedico ? { label: 'Mensaje del especialista', text: escapeHtml(mensajeMedico) } : null;
 
@@ -218,18 +226,36 @@ const sendEmailAdmin = async (email, estado, mensajeMedico = '') => {
 				buttonUrl: dashboardUrl,
 			};
 			break;
-		case 'revision':
-			content = {
+		case 'revision': {
+			const titulos = motivosRevision
+				.map(motivoById)
+				.filter(Boolean)
+				.map(m => (m.otro ? (textosOtro || {})[m.id] : m.titulo))
+				.filter(Boolean)
+				.map(escapeHtml);
+			const guided = {
+				heading: 'Falta poco para tu Pasaporte DEA',
+				paragraphs: [
+					`Un especialista revisó tu solicitud. Cambia ${cosas(titulos.length)}:`,
+					{ list: titulos },
+					'Hazlo desde tu panel. Después, envía la solicitud de nuevo.',
+				],
+			};
+			const noteOnly = {
 				heading: 'Necesitamos que revises un detalle',
 				paragraphs: [
 					'Un especialista revisó tu solicitud y dejó un mensaje para ti. Con un pequeño cambio quedará lista.',
 					'Entra a tu panel para corregir lo necesario y volver a enviarla.',
 				],
+			};
+			content = {
+				...(titulos.length ? guided : noteOnly),
 				note,
 				buttonText: 'Revisar mi solicitud',
 				buttonUrl: dashboardUrl,
 			};
 			break;
+		}
 		case 'rechazado':
 			content = {
 				heading: 'Novedades sobre tu solicitud',
