@@ -3,13 +3,13 @@ const app = express();
 const cors = require("cors");
 const helmet = require("helmet");
 const cookieParser = require("cookie-parser");
-const fileUpload = require("express-fileupload");
 const pinoHttp = require("pino-http");
 
 require("dotenv/config");
 
 const logger = require("./functions/logger");
 const { clientIp } = require("./middlewares/client-ip");
+const { documentUpload } = require("./middlewares/upload");
 const { getPrisma } = require("./db/prisma");
 
 // Safety net: Express 4 does not forward rejections from async route handlers to the
@@ -26,13 +26,6 @@ app.use(pinoHttp({ logger, serializers: { req: logger.requestSerializer } }));
 app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true, limit: "1mb" }));
 app.use(cookieParser());
-app.use(
-  fileUpload({
-    limits: { fileSize: 10 * 1024 * 1024, files: 10 }, // 10 MB/file, 10 files max
-    abortOnLimit: true,
-    responseOnLimit: "El archivo excede el tamaño máximo permitido.",
-  })
-);
 
 // CORS: explicit allowlist + credentials (cookies). Replaces origin:"*" (§4.1).
 const allowedOrigins = (process.env.CORS_ORIGINS || "")
@@ -51,6 +44,8 @@ app.use(
     allowedHeaders: ["Content-Type", "X-CSRF-Token", "X-Verifier-Key"],
   })
 );
+// After CORS, so a 413 for a too-large upload carries the CORS headers and the browser can read it.
+app.use(documentUpload);
 
 // Import routes
 const inscripcionRoutes = require("./routes/inscripcion");
