@@ -52,3 +52,16 @@ test('an upload over 60 MB in total answers 413 with a JSON message that names t
 	const { message } = await res.json();
 	assert.match(message, /60 MB/);
 });
+
+// A client still writing its body when the server answers gets a reset (EPIPE), not the 413.
+test('a large first file over 25 MB still lets the client read the 413 JSON', async () => {
+	const res = await send([30, 25]);
+	assert.equal(res.status, 413);
+	assert.match((await res.json()).message, /25 MB/);
+});
+
+test('a declared size far over 60 MB still lets the client read the 413 JSON', async () => {
+	const res = await send([22, 22, 22, 22]);
+	assert.equal(res.status, 413);
+	assert.match((await res.json()).message, /60 MB/);
+});

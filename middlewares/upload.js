@@ -10,13 +10,25 @@ const MB = 1024 * 1024;
 const FILE_TOO_LARGE = `Un archivo ocupa más de ${MAX_FILE_MB} MB, el máximo por archivo. Si es un PDF escaneado, escanéalo con menos resolución o divídelo en varios PDF.`;
 const UPLOAD_TOO_LARGE = `Los archivos ocupan más de ${MAX_UPLOAD_MB} MB en total, el máximo por envío. Quita alguno o escanea los PDF con menos resolución.`;
 
-// Answers before the body is read to the end. The rest of the body is read and dropped, so the
-// browser gets the answer instead of a reset connection; the total limit bounds how much.
+// The answer waits until the client has sent the whole body: a client still writing when the
+// server answers gets a reset connection (EPIPE) instead of the 413. The rest of the body is
+// read and dropped, up to DRAIN_LIMIT_MB, which is the most the Pages proxy lets through.
+const DRAIN_LIMIT_MB = 100;
+
 const tooLarge = (req, res, message) => {
 	if (res.headersSent) return;
 	req.unpipe();
+	const send = () => {
+		if (!res.headersSent) res.status(413).json({ message });
+	};
+	if (req.complete) return send();
+	let drained = 0;
+	req.on('data', chunk => {
+		drained += chunk.length;
+		if (drained > DRAIN_LIMIT_MB * MB) req.destroy();
+	});
+	req.on('end', send);
 	req.resume();
-	res.status(413).set('Connection', 'close').json({ message });
 };
 
 const isMultipart = req => /^multipart\//i.test(req.headers['content-type'] || '');
