@@ -4,6 +4,12 @@ on:
   push:
     branches: [master, main]
   pull_request:
+  # Redeploy master by hand (for example after a failed deploy). The deploy job checks the branch.
+  workflow_dispatch:
+
+# Jobs get only what they need; the deploy job adds the OIDC token.
+permissions:
+  contents: read
 
 jobs:
   build:
@@ -19,3 +25,30 @@ jobs:
       - run: npm test
         env:
           JWT_SECRET: ci-test-secret-not-used-in-prod
+
+  # Deploys master to the production container app after lint and tests pass.
+  # Azure sign-in is OIDC: the app registration trusts only this repo's master branch
+  # (subject repo:LectO-App/ruidea-backend:ref:refs/heads/master), so no password is stored
+  # and pull requests can't deploy.
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/master' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    # One deploy at a time; a newer merge waits instead of racing the older one.
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - run: az extension add --name containerapp --upgrade --only-show-errors
+      # Tag with the short commit, the same as the images deployed by hand.
+      - run: IMAGE_TAG="${GITHUB_SHA::7}" bash scripts/deploy.sh
