@@ -79,4 +79,9 @@ const warmPassport = user => {
 	);
 };
 
-module.exports = { getPassport, warmPassport };
+// Drops every cached render of one user (their account was deleted).
+const forgetPassport = id => {
+	for (const key of [...CACHE.keys()]) if (key.startsWith(`${id}:`)) CACHE.delete(key);
+};
+
+module.exports = { getPassport, warmPassport, forgetPassport };

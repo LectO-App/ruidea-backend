@@ -143,6 +143,9 @@ const verifyCheckSchema = z
 	})
 	.strip();
 
+// "Mis datos" newsletter switch: only this one field, nothing else of the record.
+const comunicacionesSchema = z.object({ aceptoRecibirInfo: z.boolean() }).strict();
+
 const forgotPasswordSchema = z.object({ email }).strip();
 
 const changePasswordSchema = z.object({ token: str.min(1), password: str.min(8).max(200) }).strip();
@@ -214,6 +217,7 @@ module.exports = {
 	loginSchema,
 	adminLoginSchema,
 	verifyCheckSchema,
+	comunicacionesSchema,
 	forgotPasswordSchema,
 	changePasswordSchema,
 	emailSchema,
