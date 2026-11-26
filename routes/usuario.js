@@ -9,17 +9,20 @@ const Usuario = require('../models/modeloUsuario');
 // must yield a clean 4xx, never an unhandled rejection that takes down the process.
 const { isValidObjectId: isValidId } = require('../db/objectId');
 const { verifyToken, tokenVersionClaim } = require('../functions/tokens');
-const { issueSession, endSession, authUser, authAdmin } = require('../middlewares/session');
-const { emailLimiter, authLimiter, verifyLimiter } = require('../middlewares/rate-limit');
+const { issueSession, endSession, clearSession, authUser, authAdmin } = require('../middlewares/session');
+const { emailLimiter, authLimiter, verifyLimiter, exportLimiter, deleteAccountLimiter } = require('../middlewares/rate-limit');
 const { validate } = require('../middlewares/validate');
 const schemas = require('../validation/schemas');
 const { resolveVerifier, verifierKeyQuota } = require('../functions/verifier');
 const { writeAudit, writeVerifyAudit } = require('../functions/audit');
-const { getPassport } = require('../functions/passportRender');
+const { getPassport, forgetPassport } = require('../functions/passportRender');
 const { deleteUserDocuments, logBlobError } = require('../functions/blob');
 const { draftProgress } = require('../functions/drafts');
+const { publicView } = require('../functions/publicView');
+const { fieldGroups, linkOpenings, hasPassport } = require('../functions/misDatos');
+const { buildExport } = require('../functions/misDatosExport');
 
-const { sendPasswordResetEmail } = require('../functions/sendEmail');
+const { sendPasswordResetEmail, sendAccountDeletedEmail } = require('../functions/sendEmail');
 
 const safeEqual = (a, b) => {
 	if (typeof a !== 'string' || typeof b !== 'string') return false;
@@ -35,18 +38,6 @@ const sameDocumento = (stored, given) => {
 	const key = docKey(stored);
 	return key.length > 0 && key === docKey(given);
 };
-
-// Minimal public projection for a share link — never the whole document (§1.6, §2.2).
-const publicView = u => ({
-	nombre: u.nombre,
-	apellidos: u.apellidos,
-	paisResidencia: u.paisResidencia,
-	numeroDocumento: u.numeroDocumento,
-	numeroPasaporte: u.numeroPasaporte,
-	fechaNacimiento: u.fechaNacimiento,
-	diagnostico: u.diagnostico,
-	estado: u.estado,
-});
 
 // Old number-based links (/verificar/<documento>/<numeroPasaporte>) are printed in the QR of
 // every passport downloaded before share tokens existed, and in links holders already copied.
@@ -162,6 +153,103 @@ router.get('/me', authUser, async (req, res) => {
 	// progreso: which form steps an unfinished application (borrador) still misses.
 	const progreso = usuario.estado === 'borrador' ? draftProgress(usuario) : undefined;
 	res.json({ ...usuario.toJSON(), shareToken: usuario.shareToken, progreso, csrfToken: req.user.csrf });
+});
+
+// "Mis datos" (GDPR Art. 12, 15, 17, 20 and 7(3)): holders see, download and delete their own
+// data from a signed-in session, with no letter and no ID copy. Owner only: an admin session
+// (id "admin") has no record and gets 404. These routes sit before DELETE /:id (admin), which
+// would otherwise match /me.
+const ownRecord = async (req, res, next) => {
+	if (!isValidId(req.user.id)) return res.status(404).json({ message: 'Usuario no encontrado' });
+	try {
+		req.usuario = await Usuario.findById(req.user.id);
+	} catch (err) {
+		req.log && req.log.error({ err }, 'mis datos lookup failed');
+		return res.status(500).json({ message: 'Error interno' });
+	}
+	if (!req.usuario) return res.status(404).json({ message: 'Usuario no encontrado' });
+	next();
+};
+
+const openingsOf = usuario => (hasPassport(usuario) ? linkOpenings(usuario.numeroPasaporte) : null);
+
+// What is stored, who sees it, and (for an issued passport) how often the link was opened in
+// the last 30 days, as days only.
+router.get('/me/datos', authUser, ownRecord, async (req, res) => {
+	const { usuario } = req;
+	try {
+		res.json({
+			estado: usuario.estado,
+			aceptoRecibirInfo: Boolean(usuario.aceptoRecibirInfo),
+			grupos: fieldGroups(usuario),
+			enlace: await openingsOf(usuario),
+		});
+	} catch (err) {
+		req.log && req.log.error({ err }, 'mis datos failed');
+		res.status(500).json({ message: 'Error interno' });
+	}
+});
+
+// The newsletter consent, withdrawable as easily as it was given (Art. 7(3)). Changes only this
+// field: unlike PUT /inscripcion/actualizar, it never sends the application back to review.
+router.patch('/me/comunicaciones', authUser, validate(schemas.comunicacionesSchema), ownRecord, async (req, res) => {
+	const { aceptoRecibirInfo } = req.body;
+	try {
+		const updated = await Usuario.updateById(req.usuario._id, { aceptoRecibirInfo });
+		if (!updated) return res.status(404).json({ message: 'Usuario no encontrado' });
+		writeAudit(req, {
+			action: 'user.comunicaciones',
+			actorType: 'user',
+			actorId: req.user.id,
+			target: req.user.id,
+			outcome: 'success',
+			meta: { aceptoRecibirInfo },
+		});
+		res.json({ aceptoRecibirInfo: Boolean(updated.aceptoRecibirInfo) });
+	} catch (err) {
+		req.log && req.log.error({ err }, 'comunicaciones update failed');
+		res.status(500).json({ message: 'Error interno' });
+	}
+});
+
+// A copy of everything stored (Art. 15 and 20): a ZIP made for this request only.
+router.get('/me/export', authUser, exportLimiter, ownRecord, async (req, res) => {
+	const { usuario } = req;
+	let zip;
+	try {
+		zip = await buildExport({ usuario, grupos: fieldGroups(usuario), enlace: await openingsOf(usuario) });
+	} catch (err) {
+		logBlobError(req, err, 'mis datos export failed');
+		return res.status(500).json({ message: 'No pudimos preparar tu copia. Inténtalo de nuevo en un momento.' });
+	}
+	writeAudit(req, { action: 'user.export', actorType: 'user', actorId: req.user.id, target: req.user.id, outcome: 'success' });
+	res.set({
+		'Content-Type': 'application/zip',
+		'Content-Disposition': 'attachment; filename="mis-datos-ruidea.zip"',
+		'Cache-Control': 'no-store',
+	});
+	zip.generateNodeStream({ type: 'nodebuffer', streamFiles: true, compression: 'DEFLATE' }).pipe(res);
+});
+
+// Deletes the account at once (Art. 17): the record, every upload and any cached passport
+// render. The passport's share token and number links answer like an unknown passport after
+// this. The audit keeps the id only.
+router.delete('/me', authUser, deleteAccountLimiter, ownRecord, async (req, res) => {
+	const id = req.user.id;
+	try {
+		const user = await Usuario.deleteById(id);
+		if (!user) return res.status(404).json({ message: 'Usuario no encontrado' });
+		forgetPassport(id);
+		const docs = await deleteUserDocuments(user._id, user.archivoBlob);
+		if (docs.failed) logBlobError(req, docs.error, 'user documents not fully deleted', { failed: docs.failed });
+		clearSession(res);
+		writeAudit(req, { action: 'user.delete_self', actorType: 'user', actorId: id, target: id, outcome: 'success' });
+		sendAccountDeletedEmail(user).catch(err => req.log && req.log.error({ code: err.code || err.name }, 'account deleted email failed'));
+		res.json({ ok: true });
+	} catch (err) {
+		req.log && req.log.error({ err }, 'delete own account failed');
+		res.status(500).json({ message: 'Error interno' });
+	}
 });
 
 // Kept for compatibility, but now ownership-or-admin enforced.

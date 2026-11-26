@@ -184,4 +184,4 @@ const passportHtml = async user => {
 </html>`;
 };
 
-module.exports = { passportHtml };
+module.exports = { passportHtml, escapeHtml, fontFaceCss };

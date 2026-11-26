@@ -39,4 +39,16 @@ const verifyLimiter = rateLimit({
 	message: { message: 'Demasiadas verificaciones. Intente nuevamente más tarde.' },
 });
 
-module.exports = { emailLimiter, authLimiter, verifyLimiter, registerLimiter };
+// "Mis datos": the export renders a PDF and reads every upload; deleting the account sends an
+// email. A person needs each a few times at most.
+const accountLimiter = () =>
+	rateLimit({
+		...generic,
+		windowMs: 60 * 60 * 1000, // 1 hour
+		max: 10,
+		message: { message: 'Demasiadas solicitudes. Inténtalo de nuevo más tarde.' },
+	});
+const exportLimiter = accountLimiter();
+const deleteAccountLimiter = accountLimiter();
+
+module.exports = { emailLimiter, authLimiter, verifyLimiter, registerLimiter, exportLimiter, deleteAccountLimiter };

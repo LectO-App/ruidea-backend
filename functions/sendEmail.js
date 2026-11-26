@@ -300,4 +300,27 @@ const sendDraftCancelledEmail = async user => {
 	});
 };
 
-module.exports = { sendEmail, sendEmailAdmin, sendPasswordResetEmail, sendDraftReminderEmail, sendDraftCancelledEmail };
+// Sent when holders delete their own account from "Mis datos" (DELETE /usuario/me).
+const sendAccountDeletedEmail = async user => {
+	await send(user.correoElectronico, 'Hemos borrado tu cuenta de RUIDEA', {
+		heading: 'Hemos borrado tu cuenta',
+		paragraphs: [
+			`${greeting(user.nombre)} Nos pediste borrar tu cuenta de RUIDEA, y ya está hecho.`,
+			'Borramos tus datos y los documentos que subiste. No se pueden recuperar.',
+			'Si tenías un Pasaporte DEA, ya no funciona: ni su código QR ni su enlace.',
+			'Si quieres un Pasaporte DEA más adelante, puedes volver a solicitarlo con el mismo correo.',
+			`Si no fuiste tú, escríbenos a <a href="mailto:${SUPPORT_EMAIL}" style="color:${C.tealDark};font-weight:600;">${SUPPORT_EMAIL}</a>.`,
+		],
+		buttonText: 'Solicitar un pasaporte',
+		buttonUrl: `${FRONTEND_URL}/inscribirse`,
+	});
+};
+
+module.exports = {
+	sendEmail,
+	sendEmailAdmin,
+	sendPasswordResetEmail,
+	sendDraftReminderEmail,
+	sendDraftCancelledEmail,
+	sendAccountDeletedEmail,
+};
