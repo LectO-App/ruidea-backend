@@ -19,7 +19,7 @@ const { getPassport } = require('../functions/passportRender');
 const { deleteUserDocuments, logBlobError } = require('../functions/blob');
 const { draftProgress } = require('../functions/drafts');
 
-const { sendPasswordResetEmail } = require('../functions/sendEmail');
+const { sendPasswordResetEmail, sendPassportEmail } = require('../functions/sendEmail');
 
 const safeEqual = (a, b) => {
 	if (typeof a !== 'string' || typeof b !== 'string') return false;
@@ -162,6 +162,27 @@ router.get('/me', authUser, async (req, res) => {
 	// progreso: which form steps an unfinished application (borrador) still misses.
 	const progreso = usuario.estado === 'borrador' ? draftProgress(usuario) : undefined;
 	res.json({ ...usuario.toJSON(), shareToken: usuario.shareToken, progreso, csrfToken: req.user.csrf });
+});
+
+// Sends the holder's passport card (name, number, QR of the share link) to the account's own
+// address, so holders approved before the card was in the aceptado email can get it too.
+router.post('/enviar-pasaporte', emailLimiter, authUser, async (req, res) => {
+	if (!isValidId(req.user.id)) return res.status(404).json({ message: 'Usuario no encontrado' });
+	const usuario = await Usuario.findById(req.user.id);
+	if (!usuario) return res.status(404).json({ message: 'Usuario no encontrado' });
+	if (usuario.estado !== 'aceptado' || !usuario.emailVerificado || !usuario.shareToken) {
+		return res.status(409).json({ message: 'El pasaporte aún no fue emitido' });
+	}
+	const audit = outcome => writeAudit(req, { action: 'passport.email', actorType: 'user', actorId: req.user.id, target: String(usuario._id), outcome });
+	try {
+		await sendPassportEmail(usuario);
+	} catch (err) {
+		req.log && req.log.error({ err }, 'enviar-pasaporte email failed');
+		audit('failed');
+		return res.status(502).json({ message: 'No pudimos enviar el correo.' });
+	}
+	audit('success');
+	res.json({ ok: true });
 });
 
 // Kept for compatibility, but now ownership-or-admin enforced.

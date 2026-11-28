@@ -71,7 +71,7 @@ router.post("/respuesta", authAdmin, validate(schemas.respuestaSchema), async (r
     }
 
     // Fire-and-forget: don't block the admin response on a slow SMTP round-trip.
-    sendEmailAdmin(emailUsuario, estado, mensajeMedico).catch(err => req.log && req.log.error({ err }, "respuesta email failed"));
+    sendEmailAdmin(emailUsuario, estado, mensajeMedico, user).catch(err => req.log && req.log.error({ err }, "respuesta email failed"));
     writeAudit(req, { action: "admin.respuesta", actorType: "admin", target: String(user._id), outcome: "success", meta: { estado } });
     res.json({ ok: true });
   } catch (err) {
