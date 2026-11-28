@@ -2,6 +2,7 @@ const path = require('path');
 const nodemailer = require('nodemailer');
 const Usuario = require('../models/modeloUsuario');
 const { signToken } = require('./tokens');
+const { signEmailVerifyToken, emailCode } = require('./emailCode');
 
 // Base URL of the frontend that email links point to. Configurable so reset/verify
 // links work in any environment (e.g. http://localhost:3000 in dev). Defaults to prod.
@@ -63,8 +64,11 @@ const button = (text, url) => `
 
 // One shared template for every email. `paragraphs` may contain safe author-written HTML
 // (links), or `{ list: [...] }` for a bulleted list; `note` is an optional highlighted
-// callout (used for the specialist's message, which is HTML-escaped by the caller).
-const emailShell = ({ heading, paragraphs = [], note = null, buttonText, buttonUrl }) => {
+// callout (used for the specialist's message, which is HTML-escaped by the caller); `code`
+// is an optional 6-digit code shown under the button.
+const spacedCode = code => `${code.slice(0, 3)} ${code.slice(3)}`;
+
+const emailShell = ({ heading, paragraphs = [], note = null, buttonText, buttonUrl, code = null }) => {
 	const body = paragraphs
 		.map(p =>
 			p.list
@@ -84,6 +88,16 @@ const emailShell = ({ heading, paragraphs = [], note = null, buttonText, buttonU
 					</td>
 				</tr>
 			</table>`
+		: '';
+
+	const codeHtml = code
+		? `<tr>
+						<td align="center" style="padding:0 40px 32px;">
+							<p style="margin:0 0 10px;font-family:${FONT};font-size:16px;line-height:1.5;color:${C.body};">${code.label}</p>
+							<p style="margin:0;display:inline-block;padding:12px 24px;background:${C.noteBg};border-radius:12px;font-family:${FONT};font-size:32px;line-height:1.2;font-weight:800;letter-spacing:0.12em;color:${C.ink};">${spacedCode(code.value)}</p>
+							<p style="margin:10px 0 0;font-family:${FONT};font-size:14px;line-height:1.5;color:${C.muted};">${code.hint}</p>
+						</td>
+					</tr>`
 		: '';
 
 	return `<!DOCTYPE html>
@@ -133,6 +147,7 @@ const emailShell = ({ heading, paragraphs = [], note = null, buttonText, buttonU
 							${button(buttonText, buttonUrl)}
 						</td>
 					</tr>
+					${codeHtml}
 					<!-- Footer -->
 					<tr>
 						<td style="padding:22px 40px;background:${C.bg};border-top:1px solid ${C.border};">
@@ -150,7 +165,7 @@ const emailShell = ({ heading, paragraphs = [], note = null, buttonText, buttonU
 };
 
 // Plaintext fallback so the message is still readable where HTML is stripped.
-const plain = ({ heading, paragraphs = [], note = null, buttonText, buttonUrl }) =>
+const plain = ({ heading, paragraphs = [], note = null, buttonText, buttonUrl, code = null }) =>
 	[
 		heading,
 		'',
@@ -158,6 +173,7 @@ const plain = ({ heading, paragraphs = [], note = null, buttonText, buttonUrl })
 		note ? `\n${note.label}: ${note.text}` : '',
 		'',
 		`${buttonText}: ${buttonUrl}`,
+		code ? `\n${code.label} ${spacedCode(code.value)}\n${code.hint}` : '',
 		'',
 		'Sistema creado por el equipo de LectO, en colaboración con Disfam.',
 	]
@@ -182,18 +198,23 @@ const send = async (to, subject, content) => {
 const sendEmail = async id => {
 	const user = await Usuario.findById(id);
 	if (!user || user.estado === 'borrador') return false;
-	// 24h window — long enough that people who read email once a day still make it, and it
-	// matches the "caduca en 24 horas" wording below. If it lapses, the verify page offers a
-	// "Reenviar correo" button that issues a fresh link, so an expired link is never a dead end.
-	const emailToken = signToken({ id, purpose: 'email-verify' }, { expiresIn: '24h' });
+	// 24h window for the link and the code — long enough that people who read email once a
+	// day still make it, and it matches the "caducan en 24 horas" wording below. If it lapses,
+	// the verify page offers a "Reenviar correo" button, so an expired link is never a dead end.
+	const emailToken = signEmailVerifyToken(user.id, user.correoElectronico);
 
 	await send(user.correoElectronico, 'Confirma tu correo de RUIDEA', {
 		heading: 'Confirma tu correo',
 		paragraphs: [
 			'¡Hola! Gracias por registrarte en RUIDEA.',
 			'Solo falta un paso: confirma que este correo es tuyo. En cuanto lo hagas, un especialista revisará tu solicitud y te avisaremos por aquí.',
-			'Este enlace caduca en 24 horas. Si ya ha caducado, abre el enlace de todos modos y pulsa «Reenviar correo» para recibir uno nuevo.',
+			'Pulsa el botón, o escribe el código de abajo en tu panel de RUIDEA. El botón y el código caducan en 24 horas. Si ya han caducado, abre el enlace de todos modos y pulsa «Reenviar correo» para recibir uno nuevo.',
 		],
+		code: {
+			label: 'O escribe este código en la web:',
+			value: emailCode(user.id, user.correoElectronico),
+			hint: 'No le des este código a nadie.',
+		},
 		buttonText: 'Confirmar mi correo',
 		buttonUrl: `${FRONTEND_URL}/verificarEmail/${emailToken}`,
 	});
