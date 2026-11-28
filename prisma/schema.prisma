@@ -17,7 +17,7 @@ datasource db {
 /// Columns are nullable wherever MongoDB could hold null or a missing value; the column
 /// defaults are the old Mongoose defaults.
 model Usuario {
-  id                  String    @id
+  id                  String       @id
   nombre              String?
   apellidos           String?
   paisResidencia      String?
@@ -25,34 +25,34 @@ model Usuario {
   lugarNacimiento     String?
   tipoDocumento       String?
   numeroDocumento     String?
-  fechaNacimiento     DateTime? @db.Timestamptz(3)
+  fechaNacimiento     DateTime?    @db.Timestamptz(3)
   /// Stored trimmed and lowercased (as the Mongoose setters did).
-  correoElectronico   String    @unique
+  correoElectronico   String       @unique
   numeroTelefono      String?
   /// diagnostico.{dislexia,discalculia,disortografía,dispraxia,tdah}
-  dislexia            Boolean?  @default(false)
-  discalculia         Boolean?  @default(false)
-  disortografia       Boolean?  @default(false)
-  dispraxia           Boolean?  @default(false)
-  tdah                Boolean?  @default(false)
-  esTutor             Boolean?  @default(false)
-  tutorNombre         String?   @default("")
-  tutorApellidos      String?   @default("")
-  tutorParentesco     String?   @default("")
+  dislexia            Boolean?     @default(false)
+  discalculia         Boolean?     @default(false)
+  disortografia       Boolean?     @default(false)
+  dispraxia           Boolean?     @default(false)
+  tdah                Boolean?     @default(false)
+  esTutor             Boolean?     @default(false)
+  tutorNombre         String?      @default("")
+  tutorApellidos      String?      @default("")
+  tutorParentesco     String?      @default("")
   /// bcrypt hash, copied byte for byte from MongoDB.
   password            String
-  emailVerificado     Boolean?  @default(false)
-  fechaCreacion       DateTime? @db.Timestamptz(3)
-  estado              String?   @default("borrador")
-  mensajeMedico       String?   @default("")
+  emailVerificado     Boolean?     @default(false)
+  fechaCreacion       DateTime?    @db.Timestamptz(3)
+  estado              String?      @default("borrador")
+  mensajeMedico       String?      @default("")
   /// -1 until a passport is issued; issued numbers (>= 1000) are unique (partial unique
   /// index usuarios_numeroPasaporte_issued_key in the migration SQL).
-  numeroPasaporte     Int?      @default(-1)
-  aceptoRecibirInfo   Boolean?  @default(false)
-  aceptoSolicitud     Boolean?  @default(false)
-  fechaConsentimiento DateTime? @db.Timestamptz(3)
-  fechaEnvio          DateTime? @db.Timestamptz(3)
-  archivoBlob         String?   @default("")
+  numeroPasaporte     Int?         @default(-1)
+  aceptoRecibirInfo   Boolean?     @default(false)
+  aceptoSolicitud     Boolean?     @default(false)
+  fechaConsentimiento DateTime?    @db.Timestamptz(3)
+  fechaEnvio          DateTime?    @db.Timestamptz(3)
+  archivoBlob         String?      @default("")
   /// Leftovers of the MongoDB document that have no column: fields from older schema
   /// versions and explicit nulls on optional fields. Returned in API responses exactly as
   /// Mongoose returned them (db/usuarioJson.js).
@@ -60,17 +60,19 @@ model Usuario {
   /// Insertion order. MongoDB returned unsorted results (and sort ties) in insertion order;
   /// the copy script inserts in that order and new rows come after, so lists, the Excel
   /// export and "first match" lookups keep the same order. Not part of the API.
-  orden               Int       @default(autoincrement())
+  orden               Int          @default(autoincrement())
   /// Session and password-reset tokens carry the value they were issued with and stop
   /// working once it changes. Password reset, password change and logout increment it.
   /// Not part of the API.
-  tokenVersion        Int       @default(0)
+  tokenVersion        Int          @default(0)
   /// Random, unguessable id of the holder's public passport page (/verificar/<shareToken>),
   /// printed in the passport's QR code and used by "Copiar enlace". 32 random bytes from the
   /// server's CSPRNG (two gen_random_uuid() values: 244 random bits), base64url without
   /// padding (43 characters). Every row gets one from the column default, existing rows
   /// included (the migration backfills them). Not part of the API JSON; /usuario/me adds it.
-  shareToken          String    @unique @default(dbgenerated("rtrim(translate(encode((uuid_send(gen_random_uuid()) || uuid_send(gen_random_uuid())), 'base64'::text), '+/'::text, '-_'::text), '='::text)"))
+  shareToken          String       @unique @default(dbgenerated("rtrim(translate(encode((uuid_send(gen_random_uuid()) || uuid_send(gen_random_uuid())), 'base64'::text), '+/'::text, '-_'::text), '='::text)"))
+  phoneTokens         PhoneToken[]
+  stagedFiles         StagedFile[]
 
   @@index([numeroPasaporte])
   @@index([estado])
@@ -115,4 +117,41 @@ model Verifier {
 
   @@index([keyHash])
   @@map("verifiers")
+}
+
+/// "Hazles una foto con el móvil": a 15-minute link that lets a phone add photos to one
+/// record's documents without signing in. Only the SHA-256 of the link token is stored.
+/// `codigo` is the 6-digit code typed instead of scanning the QR; it works once and is then
+/// cleared. Creating a new link deletes the record's earlier ones.
+model PhoneToken {
+  id          String    @id
+  usuarioId   String
+  usuario     Usuario   @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  codigo      String?   @unique
+  caduca      DateTime  @db.Timestamptz(3)
+  conectadoEn DateTime? @db.Timestamptz(3)
+  creadoEn    DateTime  @default(now()) @db.Timestamptz(3)
+
+  @@index([usuarioId])
+  @@index([caduca])
+  @@map("phone_tokens")
+}
+
+/// A photo sent from the phone, kept as its own blob under "<record id>/movil/" until the
+/// documents are joined into the record's PDF. Deleted then, or after 30 days.
+model StagedFile {
+  id        String   @id
+  usuarioId String
+  usuario   Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  /// diagnostico | documento
+  grupo     String
+  orden     Int
+  blob      String
+  tipo      String
+  tamano    Int
+  creadoEn  DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([usuarioId, grupo, orden])
+  @@index([creadoEn])
+  @@map("staged_files")
 }

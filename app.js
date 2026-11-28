@@ -11,6 +11,7 @@ const logger = require("./functions/logger");
 const { clientIp } = require("./middlewares/client-ip");
 const { documentUpload } = require("./middlewares/upload");
 const { getPrisma } = require("./db/prisma");
+const { scheduleStalePurge } = require("./functions/phoneUpload");
 
 // Safety net: Express 4 does not forward rejections from async route handlers to the
 // error handler, so one stray rejection would otherwise crash the process. Log and
@@ -52,12 +53,14 @@ const inscripcionRoutes = require("./routes/inscripcion");
 const adminRoutes = require("./routes/admin");
 const usuarioRoutes = require("./routes/usuario");
 const emailVerificationRoutes = require("./routes/emailVerification");
+const movilRoutes = require("./routes/movil");
 
 // MIDDLEWAREs
 app.use("/admin", adminRoutes);
 app.use("/inscripcion", inscripcionRoutes);
 app.use("/usuario", usuarioRoutes);
 app.use("/emailVerification", emailVerificationRoutes);
+app.use("/movil", movilRoutes);
 
 // ROUTES
 app.get("/", (req, res) => {
@@ -91,6 +94,8 @@ getPrisma()
   .$connect()
   .then(() => logger.info("Connected to DB"))
   .catch((err) => logger.error({ code: err.errorCode || err.code || err.name }, "DB connection failed"));
+
+scheduleStalePurge();
 
 app.listen(process.env.PORT || 3001, () => {
   logger.info(`Server listening on ${process.env.PORT || 3001}`);

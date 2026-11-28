@@ -16,6 +16,7 @@ const fake = {
 		},
 	},
 	auditLog: { create: async () => ({}) },
+	stagedFile: { findMany: async () => [] },
 };
 require('../db/prisma').getPrisma = () => fake;
 

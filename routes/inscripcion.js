@@ -14,19 +14,70 @@ const { combineDocuments, DocumentFileError, errorMessage } = require('../functi
 const { writeAudit } = require('../functions/audit');
 const { suggestEmail } = require('../validation/identity');
 
+const { listStaged, removeStaged } = require('../functions/phoneUpload');
+const { ALLOWED_MIME, MAX_FILES, TYPE_NOT_ALLOWED } = require('../middlewares/upload');
+
 const { sendEmail } = require('../functions/sendEmail');
 
-// Accept the formats people actually have: a generated PDF, or a phone photo / scan of
-// a paper diagnosis report (REGISTRATION_UX.md §5). PDF-only was a real-world barrier.
-const ALLOWED_MIME = new Set([
-	'application/pdf',
-	'image/jpeg',
-	'image/png',
-	'image/webp',
-	'image/heic',
-	'image/heif',
-]);
-const MAX_FILES = 10;
+const OLD_ZIP_CANNOT_GROW =
+	'Tus documentos actuales están guardados en un formato antiguo y no se pueden ampliar. Elige «Cambiarlos por los nuevos» y súbelos todos otra vez.';
+
+// The files of one upload and the record's staged phone photos, in page order: first as
+// `orden` lists them ("archivo:<field name>" / "movil:<id>"), then the ones it leaves out
+// (the request's files in the order sent, then the staged photos).
+const pageOrder = (req, staged, orden) => {
+	const items = [
+		...Object.entries(req.files || {}).flatMap(([field, value]) =>
+			(Array.isArray(value) ? value : [value]).map(file => ({ key: `archivo:${field}`, file }))
+		),
+		...staged.map(row => ({ key: `movil:${row.id}`, row })),
+	];
+	const used = new Set();
+	const ordered = [];
+	for (const key of orden) {
+		const i = items.findIndex((item, j) => !used.has(j) && item.key === key);
+		if (i >= 0) {
+			used.add(i);
+			ordered.push(items[i]);
+		}
+	}
+	items.forEach((item, j) => used.has(j) || ordered.push(item));
+	return ordered;
+};
+
+// Joins the items into one new PDF for the record (after its current PDF with modo=agregar),
+// stores it, and deletes the previous blob and the joined staged photos. New documents
+// behind an issued passport have not been reviewed: an accepted record goes back to
+// 'pendiente', keeping its passport number. Rejects with a DocumentFileError for a file that
+// cannot be added. Returns { archivoBlob } or { refused: { status, message } }.
+const joinDocuments = async (req, current, items, modo) => {
+	let base = null;
+	if (modo === 'agregar' && current.archivoBlob) {
+		if (!isPdfBlob(current.archivoBlob)) return { refused: { status: 409, message: OLD_ZIP_CANNOT_GROW } };
+		base = await downloadBlob(current.archivoBlob);
+	}
+	const inputs = [];
+	let photo = 0;
+	for (const item of items) {
+		if (item.file) inputs.push(item.file);
+		else inputs.push({ name: `Foto del móvil ${++photo}`, data: await downloadBlob(item.row.blob), mimetype: item.row.tipo });
+	}
+
+	const buffer = await combineDocuments(inputs, { base });
+	const blobName = `${current._id}/${new Date().toISOString()}.pdf`;
+	await uploadPdf(blobName, buffer);
+	const set = { archivoBlob: blobName };
+	if (current.estado === 'aceptado') set.estado = 'pendiente';
+	await Usuario.updateById(current._id, set);
+	// Best-effort: superseded ID and diagnosis documents should not stay in storage, but the
+	// upload stands when they cannot be deleted.
+	if (current.archivoBlob && current.archivoBlob !== blobName) {
+		await deleteBlob(current.archivoBlob).catch(err => logBlobError(req, err, 'superseded documents not deleted'));
+	}
+	const removed = await removeStaged(items.filter(item => item.row).map(item => item.row));
+	if (removed.failed) logBlobError(req, removed.error, 'joined phone photos not deleted', { failed: removed.failed });
+	return { archivoBlob: blobName };
+};
 
 // Days the medical review typically takes — surfaced to the user on the completion
 // screen so "what happens next" has an honest timeline (§7).
@@ -170,6 +221,14 @@ router.post('/:id/enviar', authUser, async (req, res) => {
 			});
 		}
 
+		// Phone photos not yet joined (they arrived after the last upload, or the person sent
+		// only phone photos) go after the documents stored now.
+		const staged = await listStaged(doc._id);
+		if (staged.length) {
+			const joined = await joinDocuments(req, doc, pageOrder(req, staged, []), 'agregar');
+			if (joined.refused) return res.status(joined.refused.status).json({ message: joined.refused.message });
+		}
+
 		const set = {
 			...result.data,
 			estado: 'pendiente',
@@ -183,6 +242,10 @@ router.post('/:id/enviar', authUser, async (req, res) => {
 		writeAudit(req, { action: 'user.submit', actorType: 'user', actorId: req.user.id, outcome: 'success' });
 		res.json({ usuario: saved, ...completionPayload(saved) });
 	} catch (err) {
+		if (err instanceof DocumentFileError) {
+			req.log && req.log.warn({ kind: err.kind }, 'submit: phone photos rejected');
+			return res.status(422).json({ message: errorMessage(err) });
+		}
 		req.log && req.log.error({ err }, 'submit failed');
 		res.status(400).json({ message: 'No se pudo enviar la solicitud' });
 	}
@@ -220,57 +283,38 @@ router.post('/', registerLimiter, validate(schemas.registerSchema), async (req, 
 
 // Upload identity/diagnosis documents for the AUTHENTICATED user. Server-side type +
 // count validation; blob keyed by record id, not client input (§3.1, §11.3). Accepts
-// PDFs and images (a phone photo of a paper report, §5), and stores them as one PDF in
-// the order sent, so the reviewer opens a single document. With modo=agregar the new
-// files go after the pages of the PDF stored now; either way the result is a new blob.
+// PDFs and images (a phone photo of a paper report, §5), and stores them, with the photos
+// sent from the phone (routes/movil.js), as one PDF in the order of `orden`, so the
+// reviewer opens a single document. With modo=agregar the new files go after the pages of
+// the PDF stored now; either way the result is a new blob. Rejecting an upload to an
+// accepted record instead of sending it back to review would break the edit flow, which
+// uploads before calling /actualizar.
 router.post('/subir-archivos', authUser, validate(schemas.uploadSchema), async (req, res) => {
-	if (!req.files || Object.keys(req.files).length === 0) {
-		return res.status(400).json({ message: 'Por favor envía un archivo' });
-	}
-	const files = Object.values(req.files).flat();
+	const files = Object.values(req.files || {}).flat();
+	let items = [];
 	try {
 		if (files.length > MAX_FILES) return res.status(400).json({ message: 'Demasiados archivos' });
 		for (const file of files) {
-			if (!ALLOWED_MIME.has(file.mimetype)) {
-				return res.status(400).json({ message: 'Solo se permiten archivos PDF o imágenes (JPG, PNG, WebP, HEIC)' });
-			}
+			if (!ALLOWED_MIME.has(file.mimetype)) return res.status(400).json({ message: TYPE_NOT_ALLOWED });
 		}
 
 		const current = await Usuario.findById(req.user.id);
 		if (!current) return res.status(404).json({ message: 'Usuario no encontrado' });
 
-		let base = null;
-		if (req.body.modo === 'agregar' && current.archivoBlob) {
-			if (!isPdfBlob(current.archivoBlob)) {
-				return res.status(409).json({
-					message: 'Tus documentos actuales están guardados en un formato antiguo y no se pueden ampliar. Elige «Cambiarlos por los nuevos» y súbelos todos otra vez.',
-				});
-			}
-			base = await downloadBlob(current.archivoBlob);
-		}
+		items = pageOrder(req, await listStaged(current._id), req.body.orden);
+		if (!items.length) return res.status(400).json({ message: 'Por favor envía un archivo' });
+		if (items.length > MAX_FILES) return res.status(400).json({ message: 'Demasiados archivos' });
 
-		const buffer = await combineDocuments(files, { base });
-		const blobName = `${req.user.id}/${new Date().toISOString()}.pdf`;
-		await uploadPdf(blobName, buffer);
-		// New documents behind an issued passport have not been reviewed: an accepted record goes
-		// back to 'pendiente' (as PUT /actualizar does), keeping its passport number. Rejecting the
-		// upload instead would break the edit flow, which uploads before calling /actualizar.
-		const set = { archivoBlob: blobName };
-		if (current.estado === 'aceptado') set.estado = 'pendiente';
-		await Usuario.updateById(req.user.id, set);
-		// The new PDF replaces the previous blob (PDF or older ZIP). Delete the previous one so
-		// superseded ID and diagnosis documents don't stay in storage. Best-effort: a failure is
-		// logged, the upload stands.
-		if (current.archivoBlob && current.archivoBlob !== blobName) {
-			await deleteBlob(current.archivoBlob).catch(err => logBlobError(req, err, 'superseded documents not deleted'));
-		}
+		const joined = await joinDocuments(req, current, items, req.body.modo);
+		if (joined.refused) return res.status(joined.refused.status).json({ message: joined.refused.message });
 
-		writeAudit(req, { action: 'docs.upload', actorType: 'user', actorId: req.user.id, outcome: 'success' });
-		res.json({ message: 'Documentos subidos', archivos: files.length, archivoBlob: blobName });
+		const movil = items.filter(item => item.row).length;
+		writeAudit(req, { action: 'docs.upload', actorType: 'user', actorId: req.user.id, outcome: 'success', meta: { archivos: items.length, movil } });
+		res.json({ message: 'Documentos subidos', archivos: items.length, archivoBlob: joined.archivoBlob });
 	} catch (err) {
 		if (err instanceof DocumentFileError) {
 			// Only the count and the kind: file names and contents are personal data.
-			req.log && req.log.warn({ kind: err.kind, archivos: files.length }, 'upload rejected');
+			req.log && req.log.warn({ kind: err.kind, archivos: items.length }, 'upload rejected');
 			return res.status(422).json({ message: errorMessage(err) });
 		}
 		req.log && req.log.error({ err }, 'upload failed');

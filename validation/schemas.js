@@ -151,7 +151,42 @@ const emailSchema = z.object({ mail: email }).strip();
 
 // The text fields of a document upload. reemplazar: the new files are the whole document.
 // agregar: the new files go after the pages of the PDF stored now.
-const uploadSchema = z.object({ modo: z.enum(['reemplazar', 'agregar']).default('reemplazar') }).strip();
+// orden: the page order as a JSON array, one entry per file: "archivo:<field name>" for a file
+// in this request, "movil:<id>" for a photo sent from the phone. Staged photos it leaves out
+// go at the end.
+const ordenEntry = z.string().regex(/^(archivo:.{1,120}|movil:[0-9a-f]{24})$/);
+const uploadSchema = z
+	.object({
+		modo: z.enum(['reemplazar', 'agregar']).default('reemplazar'),
+		orden: z
+			.string()
+			.max(10000)
+			.optional()
+			.transform((value, ctx) => {
+				if (value === undefined) return [];
+				try {
+					return JSON.parse(value);
+				} catch {
+					ctx.addIssue({ code: 'custom', message: 'Orden inválido' });
+					return z.NEVER;
+				}
+			})
+			.pipe(z.array(ordenEntry).max(40)),
+	})
+	.strip();
+
+// The 6 digits shown on the computer, typed on the phone. Spaces and dashes are dropped.
+const phoneCodeSchema = z
+	.object({
+		codigo: z
+			.string()
+			.max(20)
+			.transform(v => v.replace(/[\s-]/g, ''))
+			.pipe(z.string().regex(/^\d{6}$/, 'El código tiene 6 números')),
+	})
+	.strip();
+
+const phoneUploadSchema = z.object({ grupo: z.enum(['diagnostico', 'documento']) }).strip();
 
 const respuestaSchema = z
 	.object({
@@ -218,6 +253,8 @@ module.exports = {
 	changePasswordSchema,
 	emailSchema,
 	uploadSchema,
+	phoneCodeSchema,
+	phoneUploadSchema,
 	respuestaSchema,
 	solicitudesSchema,
 	cancelarBorradorSchema,

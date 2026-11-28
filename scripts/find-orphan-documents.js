@@ -8,6 +8,8 @@ const { getPrisma } = require('../db/prisma');
 const { listBlobs, CONTAINER } = require('../functions/blob');
 
 const RECORD_FOLDER = /^([0-9a-f]{24})\//;
+// Phone photos waiting to be joined into the record's PDF (functions/phoneUpload.js).
+const STAGED = /^[0-9a-f]{24}\/movil\//;
 
 (async () => {
 	const prisma = getPrisma();
@@ -22,6 +24,8 @@ const RECORD_FOLDER = /^([0-9a-f]{24})\//;
 		blobs: names.length,
 		// Blobs some record's archivoBlob points to.
 		current: 0,
+		// Phone photos under "<id>/movil/", not joined yet (or left behind by a failed delete).
+		staged: 0,
 		// Under "<id>/" of an existing record but not its archivoBlob (replaced by a re-upload).
 		superseded: 0,
 		recordsWithSuperseded: 0,
@@ -42,6 +46,7 @@ const RECORD_FOLDER = /^([0-9a-f]{24})\//;
 		}
 		const match = RECORD_FOLDER.exec(name);
 		if (!match) counts.otherNaming++;
+		else if (STAGED.test(name)) counts.staged++;
 		else if (ids.has(match[1])) {
 			counts.superseded++;
 			withSuperseded.add(match[1]);

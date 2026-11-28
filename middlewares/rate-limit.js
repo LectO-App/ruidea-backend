@@ -39,4 +39,22 @@ const verifyLimiter = rateLimit({
 	message: { message: 'Demasiadas verificaciones. Intente nuevamente más tarde.' },
 });
 
-module.exports = { emailLimiter, authLimiter, verifyLimiter, registerLimiter };
+// The phone photo page: no session, a link token in the URL. Room for a few dozen photos and
+// retries in 15 minutes.
+const phoneLimiter = rateLimit({
+	...generic,
+	windowMs: 15 * 60 * 1000,
+	max: 120,
+	message: { message: 'Demasiadas fotos seguidas. Espera unos minutos y vuelve a intentarlo.' },
+});
+
+// The 6-digit code typed on the phone: as tight as the sign-in attempts, so the million codes
+// cannot be tried within the 15 minutes a code lives.
+const phoneCodeLimiter = rateLimit({
+	...generic,
+	windowMs: 15 * 60 * 1000,
+	max: 20,
+	message: { message: 'Demasiados intentos. Espera unos minutos y vuelve a intentarlo.' },
+});
+
+module.exports = { emailLimiter, authLimiter, verifyLimiter, registerLimiter, phoneLimiter, phoneCodeLimiter };
