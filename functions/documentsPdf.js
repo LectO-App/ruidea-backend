@@ -166,4 +166,4 @@ const MESSAGES = {
 
 const errorMessage = err => MESSAGES[err.kind](displayName(err.fileName));
 
-module.exports = { combineDocuments, DocumentFileError, errorMessage, MAX_EDGE };
+module.exports = { combineDocuments, sniff, DocumentFileError, errorMessage, MAX_EDGE };

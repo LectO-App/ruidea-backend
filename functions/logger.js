@@ -23,14 +23,15 @@ const logger = pino({
 	},
 });
 
-// Two routes carry personal data or a credential in the URL: the passport share links
-// (/usuario/verificar/:token and the legacy /usuario/verificar/:numeroDocumento/:numeroPasaporte) and the email-verification links
-// (/emailVerification/confirm|resend/:token). pino-http logs every request URL and its route
+// These routes carry personal data or a credential in the URL: the passport share links
+// (/usuario/verificar/:token and the legacy /usuario/verificar/:numeroDocumento/:numeroPasaporte), the email-verification links
+// (/emailVerification/confirm|resend/:token) and the phone photo links (/movil/sesion/:token). pino-http logs every request URL and its route
 // params, so log the route pattern there instead, and never the params.
 const MASKED_URLS = [
 	[/\/usuario\/verificar\/[^/?#]+(?=[?#]|$)/i, '/usuario/verificar/:token'],
 	[/\/usuario\/verificar\/[^?#]*/i, '/usuario/verificar/:numeroDocumento/:numeroPasaporte'],
 	[/\/emailVerification\/(confirm|resend)\/[^?#]+/i, '/emailVerification/$1/:token'],
+	[/\/movil\/sesion\/[^/?#]+/i, '/movil/sesion/:token'],
 ];
 
 const requestSerializer = req => {

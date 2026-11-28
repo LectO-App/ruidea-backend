@@ -5,19 +5,22 @@ const CONTAINER = 'ruidea';
 
 const service = () => azureStorage.createBlobService();
 
-// Uploads a user's combined documents PDF. The blob name is keyed by the server-side record
-// id (passed in), never by client input (§11.3). Served inline, so the reviewer's browser
-// opens it instead of downloading it.
-const uploadPdf = (blobName, buffer) =>
+// Uploads one of a user's documents. The blob name is keyed by the server-side record id
+// (passed in), never by client input (§11.3). Served inline, so the browser opens it instead
+// of downloading it.
+const uploadBlob = (blobName, buffer, contentType) =>
 	new Promise((resolve, reject) => {
 		const getStream = require('into-stream');
 		const stream = getStream(buffer);
-		const options = { contentSettings: { contentType: 'application/pdf', contentDisposition: 'inline' } };
+		const options = { contentSettings: { contentType, contentDisposition: 'inline' } };
 		service().createBlockBlobFromStream(CONTAINER, blobName, stream, buffer.length, options, error => {
 			if (error) return reject(error);
 			resolve(blobName);
 		});
 	});
+
+// The combined documents PDF the reviewer opens.
+const uploadPdf = (blobName, buffer) => uploadBlob(blobName, buffer, 'application/pdf');
 
 // The whole content of one blob.
 const downloadBlob = blobName =>
@@ -113,4 +116,4 @@ const deleteUserDocuments = async (id, archivoBlob) => {
 const logBlobError = (req, err, message, extra = {}) =>
 	req.log && req.log.error({ ...extra, code: (err && (err.code || err.name)) || 'unknown', statusCode: err && err.statusCode }, message);
 
-module.exports = { uploadPdf, downloadBlob, isPdfBlob, sasUrl, deleteBlob, listBlobs, deleteUserDocuments, logBlobError, CONTAINER };
+module.exports = { uploadBlob, uploadPdf, downloadBlob, isPdfBlob, sasUrl, deleteBlob, listBlobs, deleteUserDocuments, logBlobError, CONTAINER };
