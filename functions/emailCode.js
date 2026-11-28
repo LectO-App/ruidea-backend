@@ -64,8 +64,6 @@ const recordWrongTry = (id, now = Date.now()) => {
 const clearWrongTries = id => wrongTries.delete(String(id));
 
 module.exports = {
-	MAX_WRONG_TRIES,
-	emailHash,
 	signEmailVerifyToken,
 	tokenMatchesAddress,
 	emailCode,
