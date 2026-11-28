@@ -204,8 +204,13 @@ const estadisticasQuerySchema = z
 	.strip()
 	.refine(({ desde, hasta }) => !desde || !hasta || desde <= hasta, { message: 'La fecha de inicio debe ser anterior a la de fin', path: ['hasta'] });
 
+const siguienteQuerySchema = z
+	.object({ excluir: z.string().regex(/^[0-9a-fA-F]{24}$/).toLowerCase().optional() })
+	.strip();
+
 module.exports = {
 	estadisticasQuerySchema,
+	siguienteQuerySchema,
 	draftStartSchema,
 	draftPatchSchema,
 	submitSchema,
