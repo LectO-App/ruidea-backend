@@ -149,6 +149,26 @@ const changePasswordSchema = z.object({ token: str.min(1), password: str.min(8).
 
 const emailSchema = z.object({ mail: email }).strip();
 
+// The 6-digit code from the verification email. Spaces are allowed ("482 913").
+const emailCodeSchema = z
+	.object({
+		codigo: z
+			.string()
+			.transform(v => v.replace(/\s/g, ''))
+			.pipe(z.string().regex(/^\d{6}$/, 'Escribe los 6 números del código')),
+	})
+	.strip();
+
+// A new address for an account that has not confirmed its email yet.
+const emailChangeSchema = z
+	.object({
+		correoElectronico: str
+			.toLowerCase()
+			.email({ message: 'Ese correo no está completo. Revisa que tenga una @ y un punto.' })
+			.max(254),
+	})
+	.strip();
+
 // The text fields of a document upload. reemplazar: the new files are the whole document.
 // agregar: the new files go after the pages of the PDF stored now.
 const uploadSchema = z.object({ modo: z.enum(['reemplazar', 'agregar']).default('reemplazar') }).strip();
@@ -217,6 +237,8 @@ module.exports = {
 	forgotPasswordSchema,
 	changePasswordSchema,
 	emailSchema,
+	emailCodeSchema,
+	emailChangeSchema,
 	uploadSchema,
 	respuestaSchema,
 	solicitudesSchema,
