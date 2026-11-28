@@ -6,12 +6,13 @@ const Usuario = require('../models/modeloUsuario');
 const { isValidObjectId: isValidId } = require('../db/objectId');
 const { isUniqueViolation } = require('../db/prisma');
 const { issueSession, authUser, authAdmin } = require('../middlewares/session');
-const { registerLimiter, emailLimiter } = require('../middlewares/rate-limit');
+const { registerLimiter, emailLimiter, verifyLimiter } = require('../middlewares/rate-limit');
 const { validate } = require('../middlewares/validate');
 const schemas = require('../validation/schemas');
 const { uploadPdf, downloadBlob, isPdfBlob, sasUrl, deleteBlob, deleteUserDocuments, logBlobError } = require('../functions/blob');
 const { combineDocuments, DocumentFileError, errorMessage } = require('../functions/documentsPdf');
 const { writeAudit } = require('../functions/audit');
+const { getSample } = require('../functions/passportRender');
 const { suggestEmail } = require('../validation/identity');
 
 const { sendEmail } = require('../functions/sendEmail');
@@ -293,6 +294,20 @@ router.get('/link-archivos/:id', authUser, async (req, res) => {
 	} catch (err) {
 		req.log && req.log.error({ err }, 'link-archivos failed');
 		res.status(500).json({ message: 'Error interno' });
+	}
+});
+
+// "Así saldrá en tu pasaporte": a JPEG sample of the passport from the fields in the body,
+// not the saved record, so the Revisión step shows what the person is about to send.
+// Nothing is stored or audited, and the fields are never logged.
+router.post('/muestra-pasaporte', verifyLimiter, authUser, validate(schemas.muestraPasaporteSchema), async (req, res) => {
+	try {
+		const { buffer } = await getSample(req.body);
+		res.set({ 'Content-Type': 'image/jpeg', 'Content-Length': buffer.length, 'Cache-Control': 'no-store' });
+		res.send(buffer);
+	} catch (err) {
+		req.log && req.log.error({ err: { name: err.name, message: err.message } }, 'passport sample render failed');
+		res.status(503).json({ message: 'La muestra del pasaporte no está disponible ahora.' });
 	}
 });
 

@@ -194,6 +194,17 @@ const modificarSchema = z
 	})
 	.strip();
 
+// The fields printed on the passport, for the sample of the Revisión step.
+const muestraPasaporteSchema = z
+	.object({
+		nombre: str.min(1).max(120),
+		apellidos: str.min(1).max(120),
+		fechaNacimiento: z.coerce.date(),
+		numeroDocumento: str.min(1).max(60),
+		paisResidencia: str.min(1).max(120),
+	})
+	.strip();
+
 // GET /admin/estadisticas?desde=YYYY-MM-DD&hasta=YYYY-MM-DD, both optional and inclusive.
 const isoDay = z
 	.string()
@@ -222,4 +233,5 @@ module.exports = {
 	solicitudesSchema,
 	cancelarBorradorSchema,
 	modificarSchema,
+	muestraPasaporteSchema,
 };

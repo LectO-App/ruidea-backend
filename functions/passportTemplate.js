@@ -87,7 +87,9 @@ const fontFaceCss = [400, 600, 700]
 	})
 	.join('');
 
-const passportHtml = async user => {
+// { sample: true } draws the preview of the Revisión step: same layout, a MUESTRA
+// watermark, no passport number and a placeholder where the QR goes (no share token).
+const passportHtml = async (user, { sample = false } = {}) => {
 	const pais = user.paisResidencia || '';
 	const flagUri = pais ? flagUriFor(pais) : '';
 	// Inlined (not an <img>) so the SVG's font-family:Muli text resolves against the page's
@@ -98,7 +100,7 @@ const passportHtml = async user => {
 
 	// The QR opens the holder's public page by its random share token, never by the
 	// (sequential) passport number and document number. No token, no QR.
-	const verifyUrl = user.shareToken ? `${FRONTEND_URL}/verificar/${encodeURIComponent(user.shareToken)}` : null;
+	const verifyUrl = !sample && user.shareToken ? `${FRONTEND_URL}/verificar/${encodeURIComponent(user.shareToken)}` : null;
 	let qrUri = '';
 	try {
 		if (verifyUrl) qrUri = await QRCode.toDataURL(verifyUrl, { margin: 1, width: 180 });
@@ -135,11 +137,14 @@ const passportHtml = async user => {
       .desarrollado-lecto { width: 100%; text-align: center; font-size: 14px; position: relative; }
       .desarrollado-lecto img { width: 59.82px; height: 22.29px; }
       .nro-pasaporte { align-self: flex-start; font-size: 35px; font-weight: 600; font-size: 35.0597px; line-height: 52px; color: #151515; }
+      .muestra { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-18deg); font-size: 170px; font-weight: 700; letter-spacing: 12px; color: #161616; opacity: 0.16; pointer-events: none; z-index: 2; }
+      .qr-pendiente { width: 80%; aspect-ratio: 1; margin: 10px auto; border: 3px dashed #41a1ac; border-radius: 8px; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 16px; font-weight: 600; color: #2d7a83; }
+      .sample .fecha-nacimiento { align-self: flex-start; background: #fff3c4; border-radius: 8px; padding: 0 12px; margin-left: -12px; }
       footer { height: 70px; display: flex; justify-content: center; align-items: center; background: #41a1ac; text-align: center; }
       footer p { color: #fff; width: 70%; line-height: 1.4; }
     </style>
   </head>
-  <body>
+  <body${sample ? ' class="sample"' : ''}>
     <div class="container-topbar">
       <div class="pais">
         ${flagUri ? `<img src="${flagUri}" class="bandera-pais" />` : ''}
@@ -165,10 +170,10 @@ const passportHtml = async user => {
           <h2 class="numero-dni">${escapeHtml(user.numeroDocumento)}</h2>
         </div>
       </div>
-      <div class="nro-pasaporte">Pasaporte N° <span>${escapeHtml(formatPassport(user.numeroPasaporte))}</span></div>
+      <div class="nro-pasaporte">Pasaporte N° <span>${sample ? '·······' : escapeHtml(formatPassport(user.numeroPasaporte))}</span></div>
 
       <div class="container-qr">
-        <div id="qr">${qrUri ? `<img src="${qrUri}" alt="QR" />` : ''}</div>
+        <div id="qr">${sample ? '<div class="qr-pendiente">QR al aprobar</div>' : qrUri ? `<img src="${qrUri}" alt="QR" />` : ''}</div>
         <p class="desarrollado-lecto">
           Sistema desarrollado por el equipo de
           <img src="${logoLecto}" alt="" />
@@ -180,6 +185,7 @@ const passportHtml = async user => {
         Rogamos tengan en consideración las circunstancias que concurren en la persona portadora de este documento, así como los derechos recogidos en la legislación vigente
       </p>
     </footer>
+    ${sample ? '<div class="muestra">MUESTRA</div>' : ''}
   </body>
 </html>`;
 };
