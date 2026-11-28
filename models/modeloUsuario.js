@@ -86,6 +86,19 @@ const findByShareToken = async (shareToken, estado) => {
 	return toUsuario(await wrap('usuarios.findByShareToken', db().findFirst({ where })));
 };
 
+// Gives an accepted passport a new share token from the column's own default (the generator
+// in prisma/schema.prisma), so the old /verificar/<token> link and QR stop resolving.
+// Returns { shareToken, numeroPasaporte }, or null when the record isn't an accepted passport.
+const rotateShareToken = async id => {
+	const key = castObjectId(id);
+	if (key == null) return null;
+	const rows = await wrap(
+		'usuarios.rotateShareToken',
+		getPrisma().$queryRaw`UPDATE "usuarios" SET "shareToken" = DEFAULT WHERE id = ${key} AND estado = 'aceptado' RETURNING "shareToken", "numeroPasaporte"`
+	);
+	return rows[0] || null;
+};
+
 // { sort: 'newest' } = sort({ fechaCreacion: -1 }); default is insertion order.
 const find = async (filter, { sort, skip, limit } = {}) => {
 	const rows = await wrap(
@@ -220,6 +233,7 @@ module.exports = {
 	findByPassportNumber,
 	findByShareToken,
 	isShareToken,
+	rotateShareToken,
 	find,
 	count,
 	emailExists,

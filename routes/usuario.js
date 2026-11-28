@@ -10,7 +10,7 @@ const Usuario = require('../models/modeloUsuario');
 const { isValidObjectId: isValidId } = require('../db/objectId');
 const { verifyToken, tokenVersionClaim } = require('../functions/tokens');
 const { issueSession, endSession, authUser, authAdmin } = require('../middlewares/session');
-const { emailLimiter, authLimiter, verifyLimiter } = require('../middlewares/rate-limit');
+const { emailLimiter, authLimiter, verifyLimiter, shareRotateLimiter } = require('../middlewares/rate-limit');
 const { validate } = require('../middlewares/validate');
 const schemas = require('../validation/schemas');
 const { resolveVerifier, verifierKeyQuota } = require('../functions/verifier');
@@ -18,6 +18,7 @@ const { writeAudit, writeVerifyAudit } = require('../functions/audit');
 const { getPassport } = require('../functions/passportRender');
 const { deleteUserDocuments, logBlobError } = require('../functions/blob');
 const { draftProgress } = require('../functions/drafts');
+const { listChecks, emptyChecks } = require('../functions/checks');
 
 const { sendPasswordResetEmail } = require('../functions/sendEmail');
 
@@ -162,6 +163,43 @@ router.get('/me', authUser, async (req, res) => {
 	// progreso: which form steps an unfinished application (borrador) still misses.
 	const progreso = usuario.estado === 'borrador' ? draftProgress(usuario) : undefined;
 	res.json({ ...usuario.toJSON(), shareToken: usuario.shareToken, progreso, csrfToken: req.user.csrf });
+});
+
+// Who has checked the caller's own passport (functions/checks.js). A passport that isn't
+// accepted can't be checked, so it gets an empty list.
+router.get('/me/comprobaciones', authUser, async (req, res) => {
+	if (!isValidId(req.user.id)) return res.status(404).json({ message: 'Usuario no encontrado' });
+	try {
+		const usuario = await Usuario.findById(req.user.id);
+		if (!usuario) return res.status(404).json({ message: 'Usuario no encontrado' });
+		if (usuario.estado !== 'aceptado') return res.json(emptyChecks());
+		res.json(await listChecks(usuario.numeroPasaporte));
+	} catch (err) {
+		req.log && req.log.error({ err }, 'comprobaciones failed');
+		res.status(500).json({ message: 'Error interno' });
+	}
+});
+
+// The holder replaces their share token: the QR and links given out with the old one stop
+// opening the passport, and the next PDF/JPEG carries the new one (the render cache key
+// includes the token). Neither token goes into the audit.
+router.post('/me/enlace', authUser, shareRotateLimiter, async (req, res) => {
+	if (!isValidId(req.user.id)) return res.status(404).json({ message: 'Usuario no encontrado' });
+	try {
+		const rotated = await Usuario.rotateShareToken(req.user.id);
+		if (!rotated) return res.status(409).json({ message: 'El pasaporte aún no fue emitido' });
+		writeAudit(req, {
+			action: 'passport.share_rotated',
+			actorType: 'user',
+			actorId: req.user.id,
+			target: String(rotated.numeroPasaporte),
+			outcome: 'success',
+		});
+		res.json({ shareToken: rotated.shareToken });
+	} catch (err) {
+		req.log && req.log.error({ err }, 'share token rotation failed');
+		res.status(500).json({ message: 'Error interno' });
+	}
 });
 
 // Kept for compatibility, but now ownership-or-admin enforced.
