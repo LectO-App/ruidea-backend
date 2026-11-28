@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 const { getPrisma, wrap, DbError, isUniqueViolation } = require('../db/prisma');
 const { newObjectId } = require('../db/objectId');
-const { deleteBlob } = require('./blob');
+const { deleteBlob, uploadBlob } = require('./blob');
 const logger = require('./logger');
 
 // "Hazles una foto con el móvil" (GON-78): the computer shows a QR and a 6-digit code; the
@@ -90,14 +90,14 @@ const countStaged = usuarioId => wrap('staged_files.count', staged().count({ whe
 // Staged blobs live in the record's folder, so deleting the record's documents deletes them too.
 const stagedBlobName = (usuarioId, id, tipo) => `${usuarioId}/movil/${id}.${tipo.split('/')[1]}`;
 
-const addStaged = async (usuarioId, grupo, file, upload) => {
+const addStaged = async (usuarioId, grupo, file) => {
 	const last = await wrap(
 		'staged_files.findFirst',
 		staged().findFirst({ where: { usuarioId, grupo }, orderBy: { orden: 'desc' }, select: { orden: true } })
 	);
 	const id = newObjectId();
 	const blob = stagedBlobName(usuarioId, id, file.mimetype);
-	await upload(blob, file.data, file.mimetype);
+	await uploadBlob(blob, file.data, file.mimetype);
 	return wrap(
 		'staged_files.create',
 		staged().create({ data: { id, usuarioId, grupo, orden: last ? last.orden + 1 : 1, blob, tipo: file.mimetype, tamano: file.data.length } })
@@ -161,9 +161,6 @@ const scheduleStalePurge = (hours = 6) => {
 };
 
 module.exports = {
-	TOKEN_MINUTES,
-	STAGED_DAYS,
-	GRUPOS,
 	createPhoneToken,
 	findPhoneToken,
 	exchangeCode,

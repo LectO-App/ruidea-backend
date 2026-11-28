@@ -7,7 +7,7 @@ const { validate } = require('../middlewares/validate');
 const { ALLOWED_MIME, MAX_FILES, TYPE_NOT_ALLOWED } = require('../middlewares/upload');
 const schemas = require('../validation/schemas');
 const phone = require('../functions/phoneUpload');
-const { uploadBlob, sasUrl, logBlobError } = require('../functions/blob');
+const { sasUrl, logBlobError } = require('../functions/blob');
 const { sniff } = require('../functions/documentsPdf');
 const { writeAudit } = require('../functions/audit');
 
@@ -36,7 +36,7 @@ router.post('/token', authUser, ownerOnly, async (req, res) => {
 	try {
 		const { token, codigo, caduca } = await phone.createPhoneToken(req.user.id);
 		writeAudit(req, { action: 'phone.token_create', actorType: 'user', actorId: req.user.id, target: req.user.id, outcome: 'success' });
-		res.status(201).json({ token, codigo, caduca, minutos: phone.TOKEN_MINUTES });
+		res.status(201).json({ token, codigo, caduca });
 	} catch (err) {
 		fail(req, res, err, 'phone token create failed');
 	}
@@ -79,7 +79,7 @@ router.post('/sesion/:token/fotos', phoneLimiter, validate(schemas.phoneUploadSc
 
 		await phone.markConnected(row);
 		const saved = [];
-		for (const file of typed) saved.push(await phone.addStaged(row.usuarioId, req.body.grupo, file, uploadBlob));
+		for (const file of typed) saved.push(await phone.addStaged(row.usuarioId, req.body.grupo, file));
 		writeAudit(req, {
 			action: 'phone.upload',
 			actorType: 'phone',

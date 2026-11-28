@@ -293,7 +293,6 @@ router.post('/subir-archivos', authUser, validate(schemas.uploadSchema), async (
 	const files = Object.values(req.files || {}).flat();
 	let items = [];
 	try {
-		if (files.length > MAX_FILES) return res.status(400).json({ message: 'Demasiados archivos' });
 		for (const file of files) {
 			if (!ALLOWED_MIME.has(file.mimetype)) return res.status(400).json({ message: TYPE_NOT_ALLOWED });
 		}
