@@ -17,6 +17,7 @@ const { isPassportNumberTaken } = require("../db/prisma");
 const { getStats } = require("../functions/stats");
 const { REMINDER_ACTION, draftProgress, lastReminders } = require("../functions/drafts");
 const { deleteUserDocuments, logBlobError } = require("../functions/blob");
+const { oldestFirst } = require("../functions/queue");
 
 // Issued passport numbers are unique (unique index). Collisions answer 409 instead of 500.
 const PASSPORT_TAKEN = { message: "Ese número de pasaporte ya está asignado a otra persona." };
@@ -91,7 +92,8 @@ router.post("/solicitudes", authAdmin, validate(schemas.solicitudesSchema), asyn
         : req.body.condicion
           ? { estado: req.body.condicion }
           : { estadoNot: "borrador" };
-    const usuarios = await Usuario.find(filter, { sort: "newest" });
+    const found = await Usuario.find(filter, { sort: "newest" });
+    const usuarios = req.body.condicion === "pendiente" ? oldestFirst(found) : found;
     const drafts = usuarios.filter(u => u.estado === "borrador");
     const reminders = await lastReminders(drafts.map(u => u._id));
     for (const u of drafts) {
@@ -218,6 +220,25 @@ router.post("/solicitudes/:id", authAdmin, async (req, res) => {
     res.json({ usuario });
   } catch (err) {
     res.status(400).json({ message: "Solicitud inválida" });
+  }
+});
+
+// The pending application that has waited longest, for the reviewer to open after a decision.
+// `excluir` is the one just decided, in case its new estado has not been read back yet.
+router.get("/siguiente", authAdmin, async (req, res) => {
+  const parsed = schemas.siguienteQuerySchema.safeParse(req.query);
+  if (!parsed.success) return res.status(400).json({ message: "Datos inválidos" });
+  try {
+    const { excluir } = parsed.data;
+    const pendientes = oldestFirst(await Usuario.find({ estado: "pendiente" })).filter(u => u._id !== excluir);
+    const next = pendientes[0];
+    res.json({
+      siguiente: next ? { _id: next._id, fechaEnvio: next.fechaEnvio, fechaCreacion: next.fechaCreacion } : null,
+      pendientes: pendientes.length,
+    });
+  } catch (err) {
+    req.log && req.log.error({ err }, "siguiente failed");
+    res.status(500).json({ message: "Error interno" });
   }
 });
 
