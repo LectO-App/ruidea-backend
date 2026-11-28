@@ -39,4 +39,15 @@ const verifyLimiter = rateLimit({
 	message: { message: 'Demasiadas verificaciones. Intente nuevamente más tarde.' },
 });
 
-module.exports = { emailLimiter, authLimiter, verifyLimiter, registerLimiter };
+// A holder changing their passport link (POST /usuario/me/enlace). Each change breaks every
+// QR and link already given out, so a few per day is plenty. Keyed by account; mount it
+// after authUser.
+const shareRotateLimiter = rateLimit({
+	...generic,
+	windowMs: 24 * 60 * 60 * 1000,
+	max: 5,
+	keyGenerator: req => (req.user && req.user.id) || req.ip,
+	message: { message: 'Ya cambiaste tu enlace varias veces hoy. Inténtalo de nuevo mañana.' },
+});
+
+module.exports = { emailLimiter, authLimiter, verifyLimiter, registerLimiter, shareRotateLimiter };

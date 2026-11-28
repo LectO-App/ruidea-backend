@@ -137,3 +137,17 @@ test('the holder sees their own token in /usuario/me', { skip }, async () => {
 	assert.equal(body.shareToken, accepted.shareToken);
 	assert.equal(body.numeroPasaporte, 1003);
 });
+
+test('changing the link sets a fresh token from the column default, only for an accepted passport', { skip }, async () => {
+	const accepted = await Usuario.findByPassportNumber(1004);
+	const rotated = await Usuario.rotateShareToken(accepted._id);
+	assert.match(rotated.shareToken, TOKEN_RE);
+	assert.notEqual(rotated.shareToken, accepted.shareToken);
+	assert.equal(rotated.numeroPasaporte, 1004);
+	assert.deepEqual((await post(`/usuario/verificar/${accepted.shareToken}`)).body, { existe: false });
+	assert.equal((await post(`/usuario/verificar/${rotated.shareToken}`)).body.existe, true);
+
+	const pending = await holder(7, { estado: 'pendiente', numeroPasaporte: -2 });
+	assert.equal(await Usuario.rotateShareToken(pending._id), null);
+	assert.equal((await prisma.usuario.findUnique({ where: { id: pending._id } })).shareToken, pending.shareToken);
+});
