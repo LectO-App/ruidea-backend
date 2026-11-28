@@ -1,5 +1,6 @@
 const path = require('path');
 const nodemailer = require('nodemailer');
+const QRCode = require('qrcode');
 const Usuario = require('../models/modeloUsuario');
 const { signToken } = require('./tokens');
 
@@ -61,10 +62,73 @@ const button = (text, url) => `
 	<a href="${url}" target="_blank" style="display:inline-block;background:${C.teal};color:#ffffff;font-family:${FONT};font-size:16px;font-weight:700;line-height:50px;text-align:center;text-decoration:none;width:300px;max-width:80%;border-radius:12px;">${text}</a>
 	<!--<![endif]-->`;
 
+// Same words as the front end's Mostrar mi pasaporte screen (MostrarPasaporte.js).
+const SENTENCE =
+	'Tengo una dificultad específica del aprendizaje. Este es mi Pasaporte DEA. Le pido que tenga en cuenta mis necesidades.';
+const QR_CID = 'pasaporte-qr';
+
+const paddedPassportNumber = numero => String(numero).padStart(7, '0');
+const holderName = user => [user.nombre, user.apellidos].filter(Boolean).join(' ');
+const shareUrl = user => `${FRONTEND_URL}/verificar/${encodeURIComponent(user.shareToken)}`;
+
+// The holder's passport card for email: only the name, the number, the QR of the share link
+// and the sentence. Not the passport JPEG or PDF: they carry the ID number and birth date.
+const passportCard = async user => {
+	const url = shareUrl(user);
+	const qr = await QRCode.toBuffer(url, {
+		type: 'png',
+		width: 240,
+		margin: 4,
+		errorCorrectionLevel: 'M',
+		color: { dark: C.ink, light: '#ffffff' },
+	});
+	const p = (style, text) => `<p style="margin:0;font-family:${FONT};${style}">${text}</p>`;
+	const html = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:8px 0 20px;border:2px solid ${C.border};border-radius:16px;border-collapse:separate;overflow:hidden;">
+				<tr>
+					<td align="center" bgcolor="${C.tealDark}" style="background:${C.tealDark};padding:12px 16px;">
+						${p('font-size:20px;font-weight:800;color:#ffffff;', 'Pasaporte DEA')}
+					</td>
+				</tr>
+				<tr>
+					<td align="center" style="padding:20px 16px 18px;">
+						${p(`font-size:22px;line-height:1.3;font-weight:800;color:${C.ink};`, escapeHtml(holderName(user)))}
+						${p(`margin-top:4px;font-size:18px;font-weight:600;color:${C.body};`, `N.º ${paddedPassportNumber(user.numeroPasaporte)}`)}
+						<img src="cid:${QR_CID}" alt="Código QR de verificación del Pasaporte DEA" width="200" height="200" style="display:block;width:200px;height:200px;margin:14px auto;border:0;" />
+						${p(`font-size:15px;line-height:1.5;color:${C.body};`, 'Escanee el código con la cámara del móvil para comprobar que este pasaporte es válido.')}
+					</td>
+				</tr>
+			</table>
+			<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 20px;border-collapse:separate;">
+				<tr>
+					<td style="background:${C.noteBg};border-left:4px solid ${C.teal};border-radius:10px;padding:16px 18px;">
+						${p(`margin-bottom:6px;font-size:15px;font-weight:700;color:${C.tealDark};`, 'Si te cuesta explicarlo, enseña o lee esto')}
+						${p(`font-size:17px;line-height:1.6;color:${C.ink};`, SENTENCE)}
+					</td>
+				</tr>
+			</table>
+			${p(`margin-bottom:16px;font-size:17px;line-height:1.6;color:${C.body};`, 'Si no tienes conexión, enseña este correo. Quien escanee el código lo comprueba en su propio móvil.')}`;
+	const text = [
+		'Pasaporte DEA',
+		holderName(user),
+		`N.º ${paddedPassportNumber(user.numeroPasaporte)}`,
+		`Comprobar: ${url}`,
+		'',
+		`Si te cuesta explicarlo, enseña o lee esto: ${SENTENCE}`,
+		'',
+		'Si no tienes conexión, enseña este correo.',
+	].join('\n');
+	return {
+		html,
+		text,
+		attachment: { filename: 'pasaporte-qr.png', content: qr, contentType: 'image/png', cid: QR_CID },
+	};
+};
+
 // One shared template for every email. `paragraphs` may contain safe author-written HTML
 // (links), or `{ list: [...] }` for a bulleted list; `note` is an optional highlighted
-// callout (used for the specialist's message, which is HTML-escaped by the caller).
-const emailShell = ({ heading, paragraphs = [], note = null, buttonText, buttonUrl }) => {
+// callout (used for the specialist's message, which is HTML-escaped by the caller); `card`
+// is a passportCard() placed after the paragraphs.
+const emailShell = ({ heading, paragraphs = [], note = null, card = null, buttonText, buttonUrl }) => {
 	const body = paragraphs
 		.map(p =>
 			p.list
@@ -125,6 +189,7 @@ const emailShell = ({ heading, paragraphs = [], note = null, buttonText, buttonU
 							<h1 style="margin:0 0 16px;font-family:${FONT};font-size:26px;line-height:1.25;font-weight:800;color:${C.ink};">${heading}</h1>
 							${body}
 							${noteHtml}
+							${card ? card.html : ''}
 						</td>
 					</tr>
 					<!-- CTA -->
@@ -150,12 +215,13 @@ const emailShell = ({ heading, paragraphs = [], note = null, buttonText, buttonU
 };
 
 // Plaintext fallback so the message is still readable where HTML is stripped.
-const plain = ({ heading, paragraphs = [], note = null, buttonText, buttonUrl }) =>
+const plain = ({ heading, paragraphs = [], note = null, card = null, buttonText, buttonUrl }) =>
 	[
 		heading,
 		'',
 		...paragraphs.map(p => (p.list ? p.list.map(item => `- ${item}`).join('\n') : p.replace(/<[^>]+>/g, ''))),
 		note ? `\n${note.label}: ${note.text}` : '',
+		card ? `\n${card.text}` : '',
 		'',
 		`${buttonText}: ${buttonUrl}`,
 		'',
@@ -171,7 +237,7 @@ const send = async (to, subject, content) => {
 		subject,
 		text: plain(content),
 		html: emailShell(content),
-		attachments: [LOGO],
+		attachments: content.card ? [LOGO, content.card.attachment] : [LOGO],
 	});
 };
 
@@ -200,8 +266,9 @@ const sendEmail = async id => {
 	return true;
 };
 
-// Status-change messages sent by the admin review flow.
-const sendEmailAdmin = async (email, estado, mensajeMedico = '') => {
+// Status-change messages sent by the admin review flow. `user` is the holder's record: the
+// aceptado message carries their passport card when it has a share token.
+const sendEmailAdmin = async (email, estado, mensajeMedico = '', user = null) => {
 	const dashboardUrl = `${FRONTEND_URL}/dashboard`;
 	const note = mensajeMedico ? { label: 'Mensaje del especialista', text: escapeHtml(mensajeMedico) } : null;
 
@@ -214,6 +281,7 @@ const sendEmailAdmin = async (email, estado, mensajeMedico = '') => {
 					'Un especialista revisó tu solicitud y la aprobó.',
 					'Entra a tu panel para descargar tu pasaporte en PDF o JPG, o copiar el enlace para compartirlo cuando lo necesites.',
 				],
+				card: user && user.shareToken ? await passportCard(user) : null,
 				buttonText: 'Ver mi pasaporte',
 				buttonUrl: dashboardUrl,
 			};
@@ -247,6 +315,17 @@ const sendEmailAdmin = async (email, estado, mensajeMedico = '') => {
 	}
 
 	await send(email, 'Novedades sobre tu solicitud de RUIDEA', content);
+};
+
+// The holder's passport card, sent on request from their panel (POST /usuario/enviar-pasaporte).
+const sendPassportEmail = async user => {
+	await send(user.correoElectronico, 'Tu Pasaporte DEA', {
+		heading: 'Tu Pasaporte DEA',
+		paragraphs: ['Aquí tienes tu Pasaporte DEA. Guarda este correo para tenerlo siempre a mano.'],
+		card: await passportCard(user),
+		buttonText: 'Mostrar mi pasaporte',
+		buttonUrl: `${FRONTEND_URL}/mostrar`,
+	});
 };
 
 // Password-reset message. The link carries the account's tokenVersion, so it works once:
@@ -300,4 +379,4 @@ const sendDraftCancelledEmail = async user => {
 	});
 };
 
-module.exports = { sendEmail, sendEmailAdmin, sendPasswordResetEmail, sendDraftReminderEmail, sendDraftCancelledEmail };
+module.exports = { sendEmail, sendEmailAdmin, sendPassportEmail, sendPasswordResetEmail, sendDraftReminderEmail, sendDraftCancelledEmail };
