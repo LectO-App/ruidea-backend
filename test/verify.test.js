@@ -115,7 +115,7 @@ test('a verifier key has an hourly quota; other keys and the shared password are
 	assert.equal((await check({ ...body, password: 'shared-test-password' })).status, 200);
 });
 
-const PUBLIC_FIELDS = ['nombre', 'apellidos', 'paisResidencia', 'numeroDocumento', 'numeroPasaporte', 'fechaNacimiento', 'diagnostico', 'estado'];
+const PUBLIC_FIELDS = ['nombre', 'apellidos', 'paisResidencia', 'documentoFinal', 'numeroPasaporte', 'fechaNacimiento', 'diagnostico', 'estado'];
 
 test('the share token opens the same public page as the number-based link', async () => {
 	const byToken = await post(`/usuario/verificar/${TOKEN[0]}`);
@@ -125,6 +125,17 @@ test('the share token opens the same public page as the number-based link', asyn
 	assert.deepEqual(byToken.body, byNumber.body);
 	for (const key of Object.keys(byToken.body.usuario)) assert.ok(PUBLIC_FIELDS.includes(key), key);
 	assert.equal(JSON.stringify(byToken.body).includes(TOKEN[0]), false);
+});
+
+test('the public page gets only the last 4 characters of the document, never the whole number', async () => {
+	for (const res of [await post(`/usuario/verificar/${TOKEN[0]}`), await post('/usuario/verificar/40111222/1001')]) {
+		assert.equal(res.body.usuario.documentoFinal, '1222');
+		assert.equal('numeroDocumento' in res.body.usuario, false);
+		assert.equal(JSON.stringify(res.body).includes('40.111.222'), false);
+		assert.equal(JSON.stringify(res.body).includes('40111222'), false);
+	}
+	const byLetter = await post('/usuario/verificar/12345678z/1002');
+	assert.equal(byLetter.body.usuario.documentoFinal, '678Z');
 });
 
 test('an unknown, malformed or not-yet-accepted token answers like an unknown passport', async () => {

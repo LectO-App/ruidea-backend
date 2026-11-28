@@ -36,12 +36,13 @@ const sameDocumento = (stored, given) => {
 	return key.length > 0 && key === docKey(given);
 };
 
-// Minimal public projection for a share link — never the whole document (§1.6, §2.2).
+// Minimal public projection for a share link — never the whole document (§1.6, §2.2). The
+// verifier compares only the document's last 4 characters with the ID card in hand.
 const publicView = u => ({
 	nombre: u.nombre,
 	apellidos: u.apellidos,
 	paisResidencia: u.paisResidencia,
-	numeroDocumento: u.numeroDocumento,
+	documentoFinal: docKey(u.numeroDocumento).slice(-4),
 	numeroPasaporte: u.numeroPasaporte,
 	fechaNacimiento: u.fechaNacimiento,
 	diagnostico: u.diagnostico,
