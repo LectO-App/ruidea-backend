@@ -33,8 +33,8 @@ const versionOf = u =>
 
 const keyOf = (user, type) => `${user._id}:${type}:${versionOf(user)}`;
 
-const renderToBuffer = async (user, type) => {
-	const html = await passportHtml(user);
+const renderToBuffer = async (user, type, options) => {
+	const html = await passportHtml(user, options);
 	const buf = await withPage(async page => {
 		await page.setViewport({ width: 1000, height: 590, deviceScaleFactor: 2 });
 		await page.setContent(html, { waitUntil: 'networkidle0' });
@@ -48,9 +48,7 @@ const renderToBuffer = async (user, type) => {
 };
 
 // Returns { buffer, cached }. Concurrent calls for the same key share one render.
-const getPassport = async (user, type) => {
-	const key = keyOf(user, type);
-
+const cachedRender = async (key, render) => {
 	const hit = CACHE.get(key);
 	if (hit) {
 		CACHE.delete(key);
@@ -60,7 +58,7 @@ const getPassport = async (user, type) => {
 
 	if (INFLIGHT.has(key)) return { buffer: await INFLIGHT.get(key), cached: false };
 
-	const promise = renderToBuffer(user, type);
+	const promise = render();
 	INFLIGHT.set(key, promise);
 	try {
 		const buffer = await promise;
@@ -72,6 +70,16 @@ const getPassport = async (user, type) => {
 	}
 };
 
+const getPassport = (user, type) => cachedRender(keyOf(user, type), () => renderToBuffer(user, type));
+
+// The JPEG preview of the Revisión step, from the five fields printed on the passport.
+// Keyed by a hash of those fields only, so it never shares an entry with a real passport.
+const getSample = fields => {
+	const { nombre, apellidos, fechaNacimiento, numeroDocumento, paisResidencia } = fields;
+	const shown = { nombre, apellidos, fechaNacimiento, numeroDocumento, paisResidencia };
+	return cachedRender(`muestra:img:${versionOf(shown)}`, () => renderToBuffer(shown, 'img', { sample: true }));
+};
+
 // Fire-and-forget pre-render (both formats) so the first user download is instant.
 const warmPassport = user => {
 	['pdf', 'img'].forEach(type =>
@@ -79,4 +87,4 @@ const warmPassport = user => {
 	);
 };
 
-module.exports = { getPassport, warmPassport };
+module.exports = { getPassport, getSample, warmPassport };
